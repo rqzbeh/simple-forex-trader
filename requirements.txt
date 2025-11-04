@@ -1,0 +1,4 @@
+newsapi-python
+yfinance
+textblob
+requests
