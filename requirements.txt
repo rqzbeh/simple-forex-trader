@@ -2,3 +2,10 @@ newsapi-python
 yfinance
 textblob
 requests
+alpha_vantage
+iexfinance
+polygon-api-client
+twelvedata
+fmp-python
+quandl
+fredapi

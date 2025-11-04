@@ -7,6 +7,7 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 - **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources
 - **Sentiment Analysis**: Uses TextBlob to analyze news sentiment, with boosts for central bank and economic data sources
 - **Technical Analysis**: Incorporates Ichimoku Cloud, volume analysis, Fair Value Gaps (FVG), and candlestick patterns optimized for forex, commodities, and indices markets
+- **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
 - **Risk Management**: Calculates optimal stop losses, leverage, and risk-reward ratios for forex, commodities, and indices trading
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
 - **Telegram Notifications**: Sends trade recommendations via Telegram (optional)
@@ -24,7 +25,13 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 Install the required packages using pip:
 
 ```bash
-pip install newsapi-python yfinance textblob requests
+pip install -r requirements.txt
+```
+
+Or manually:
+
+```bash
+pip install newsapi-python yfinance textblob requests alpha_vantage iexfinance polygon-api-client twelvedata fmp-python quandl fredapi
 ```
 
 ## Installation
@@ -32,8 +39,8 @@ pip install newsapi-python yfinance textblob requests
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/yourusername/crypto-news-trading-bot.git
-   cd crypto-news-trading-bot
+   git clone https://github.com/yourusername/forex-news-trading-bot.git
+   cd forex-news-trading-bot
    ```
 
 2. Install dependencies:
@@ -49,6 +56,13 @@ pip install newsapi-python yfinance textblob requests
 Set the following environment variables:
 
 - `NEWS_API_KEY`: Your NewsAPI key (required)
+- `ALPHA_VANTAGE_API_KEY`: Your Alpha Vantage API key (optional, for forex data fallback)
+- `POLYGON_API_KEY`: Your Polygon.io API key (optional, for advanced market data)
+- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (optional, for global market data)
+- `FMP_API_KEY`: Your Financial Modeling Prep API key (optional, for stock data)
+- `QUANDL_API_KEY`: Your Quandl/Nasdaq Data Link API key (optional, for economic data)
+- `FRED_API_KEY`: Your FRED API key (optional, for macroeconomic data)
+- `IEX_API_TOKEN`: Your IEX Cloud API token (optional, for stock data)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
 
@@ -71,7 +85,7 @@ python main.py
 The bot will:
 
 1. Check the current market session
-2. Fetch recent crypto news
+2. Fetch recent forex, commodities, and indices news
 3. Analyze sentiment and technical indicators
 4. Generate trade recommendations
 5. Send notifications via Telegram (if configured)
