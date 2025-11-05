@@ -315,7 +315,8 @@ Return ONLY valid JSON, no additional text."""
             'confidence': 0.5,
             'reasoning': 'Basic keyword-based analysis (LLM not available)',
             'people_impact': 'General market sentiment impact',
-            'market_mechanism': 'Direct market reaction to news sentiment'
+            'market_mechanism': 'Direct market reaction to news sentiment',
+            'was_cached': False  # Basic analysis is never cached
         }
     
     def _normalize_result(self, result: Dict) -> Dict:
@@ -354,7 +355,8 @@ Return ONLY valid JSON, no additional text."""
             'confidence': 0.0,
             'reasoning': 'Analysis failed',
             'people_impact': 'Unknown',
-            'market_mechanism': 'Unknown'
+            'market_mechanism': 'Unknown',
+            'was_cached': False  # Default results are never cached
         }
     
     def analyze_news_batch(self, articles: List[Dict], symbol: str = '') -> Dict:
