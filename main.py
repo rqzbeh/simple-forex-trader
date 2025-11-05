@@ -95,6 +95,12 @@ FMP_API_KEY = os.getenv('FMP_API_KEY')
 QUANDL_API_KEY = os.getenv('QUANDL_API_KEY')
 FRED_API_KEY = os.getenv('FRED_API_KEY')
 
+# Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
+# Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
+GROQ_MAX_REQUESTS_PER_DAY = int(os.getenv('GROQ_MAX_REQUESTS_PER_DAY', 1000))
+GROQ_MAX_TOKENS_PER_DAY = int(os.getenv('GROQ_MAX_TOKENS_PER_DAY', 500000))
+GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
+
 print("API Keys status:")
 print(f"NEWS_API_KEY: {'Set' if NEWS_API_KEY else 'Not set'}")
 print(f"ALPHA_VANTAGE_API_KEY: {'Set' if ALPHA_VANTAGE_API_KEY else 'Not set'}")
@@ -443,13 +449,6 @@ LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile
 # Market Psychology Analysis (uses Groq to detect fear, greed, irrationality)
 PSYCHOLOGY_ANALYSIS_ENABLED = os.getenv('PSYCHOLOGY_ANALYSIS_ENABLED', 'true').lower() == 'true'
 PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_THRESHOLD', '0.6'))  # Adjust trades when irrationality > this
-
-# Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
-# Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
-GROQ_MAX_REQUESTS_PER_DAY = int(os.getenv('GROQ_MAX_REQUESTS_PER_DAY', 1000))
-GROQ_MAX_TOKENS_PER_DAY = int(os.getenv('GROQ_MAX_TOKENS_PER_DAY', 500000))
-GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
-
 
 # Backtesting configuration
 BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
