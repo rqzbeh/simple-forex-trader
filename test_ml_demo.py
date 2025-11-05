@@ -29,6 +29,15 @@ def create_synthetic_trade_log(filename='test_trade_log.json', num_trades=100):
             macd = -1 if np.random.rand() > 0.3 else 1
             trend = -1 if np.random.rand() > 0.4 else 1
         
+        # Simulate LLM features (when enabled)
+        # Winners tend to have higher LLM confidence and impact
+        if is_winner:
+            llm_confidence = float(np.random.uniform(0.6, 0.95))
+            llm_analysis = {'market_impact': np.random.choice(['high', 'medium'], p=[0.6, 0.4])}
+        else:
+            llm_confidence = float(np.random.uniform(0.2, 0.6))
+            llm_analysis = {'market_impact': np.random.choice(['low', 'medium'], p=[0.6, 0.4])}
+        
         trade = {
             'timestamp': f'2024-{(i//30)+1:02d}-{(i%30)+1:02d}T10:00:00',
             'symbol': ['EURUSD', 'GBPUSD', 'USDJPY'][i % 3],
@@ -56,6 +65,8 @@ def create_synthetic_trade_log(filename='test_trade_log.json', num_trades=100):
             'adx_signal': int(np.random.choice([-1, 0, 1])),
             'williams_r_signal': int(np.random.choice([-1, 0, 1])),
             'sar_signal': int(np.random.choice([-1, 1])),
+            'llm_confidence': llm_confidence,
+            'llm_analysis': llm_analysis,
         }
         trades.append(trade)
     
@@ -82,6 +93,7 @@ def demonstrate_ml_workflow():
     predictor = MLTradingPredictor(model_path='test_ml_model.pkl', scaler_path='test_ml_scaler.pkl')
     print("✓ ML predictor initialized")
     print(f"  Features: {len(predictor.feature_names)}")
+    print(f"  Feature count includes 2 LLM features (when enabled)")
     print(f"  Min training samples: {predictor.min_training_samples}")
     
     # Step 3: Train model
@@ -120,6 +132,8 @@ def demonstrate_ml_workflow():
         'adx_signal': 1,
         'williams_r_signal': 1,
         'sar_signal': 1,
+        'llm_confidence': 0.85,  # High confidence
+        'llm_analysis': {'market_impact': 'high'},  # High impact
     }
     
     should_trade, prob, conf = predictor.should_trade(good_trade, min_confidence=0.60, min_probability=0.55)
@@ -152,6 +166,8 @@ def demonstrate_ml_workflow():
         'adx_signal': 0,
         'williams_r_signal': -1,
         'sar_signal': -1,
+        'llm_confidence': 0.40,  # Low confidence (conflicting)
+        'llm_analysis': {'market_impact': 'low'},  # Low impact
     }
     
     should_trade2, prob2, conf2 = predictor.should_trade(poor_trade, min_confidence=0.60, min_probability=0.55)
@@ -184,6 +200,8 @@ def demonstrate_ml_workflow():
         'adx_signal': 0,
         'williams_r_signal': 0,
         'sar_signal': 1,
+        'llm_confidence': 0.50,  # Medium confidence
+        'llm_analysis': {'market_impact': 'medium'},  # Medium impact
     }
     
     should_trade3, prob3, conf3 = predictor.should_trade(neutral_trade, min_confidence=0.60, min_probability=0.55)
@@ -198,7 +216,7 @@ def demonstrate_ml_workflow():
     print("="*70)
     print("\nThe ML predictor:")
     print("1. Trains on historical wins/losses (needs minimum 50 completed trades)")
-    print("2. Extracts 21 features from each trade opportunity")
+    print("2. Extracts 23 features from each trade opportunity (21 base + 2 LLM)")
     print("3. Uses ensemble models (Random Forest + Gradient Boosting)")
     print("4. Selects best model via cross-validation")
     print("5. Predicts win probability and model confidence")
@@ -208,6 +226,7 @@ def demonstrate_ml_workflow():
     print("- Model auto-trains every 24 hours on new trade data")
     print("- Gracefully falls back if insufficient training data")
     print("- Saves/loads trained model for persistence")
+    print("- LLM features enhance predictions when news analysis is enabled")
     print("="*70 + "\n")
 
 if __name__ == '__main__':
