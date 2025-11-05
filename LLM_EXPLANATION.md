@@ -61,7 +61,7 @@ Trade Decision + ML Prediction
 
 1. **Input**: News article with title, description, and source
 2. **Prompt Engineering**: Specialized financial analyst prompt
-3. **LLM Call**: OpenAI GPT-4
+3. **LLM Call**: Groq API
 4. **Structured Output**: JSON with sentiment, impact, reasoning, etc.
 5. **Validation**: Normalize and validate LLM response
 6. **Blending**: Weighted average with basic sentiment
@@ -70,21 +70,13 @@ Trade Decision + ML Prediction
 
 ### Supported LLM Providers
 
-#### OpenAI
+#### Groq
 
-- **Models**: GPT-4o-mini (default), GPT-4, GPT-4-turbo
-- **Cost**: ~$0.15 per million tokens (very affordable with gpt-4o-mini)
+- **Models**: llama-3.1-70b-versatile (default), mixtral-8x7b-32768
+- **Cost**: Free tier available with rate limits
 - **Quality**: Excellent financial analysis
-- **Speed**: Fast responses (~1-2 seconds)
-- **Setup**: Set `OPENAI_API_KEY` environment variable
-
-#### Local (Future)
-
-- **Models**: Llama 3, Mistral (planned)
-- **Cost**: Free (runs locally)
-- **Quality**: Good but less consistent
-- **Speed**: Slower (depends on hardware)
-- **Setup**: Currently falls back to keyword analysis
+- **Speed**: Very fast responses (~1-2 seconds)
+- **Setup**: Set `GROQ_API_KEY` environment variable
 
 ## Configuration
 
@@ -94,7 +86,7 @@ Set these environment variables:
 
 ```bash
 export LLM_NEWS_ANALYSIS_ENABLED=true
-export OPENAI_API_KEY=your_openai_api_key
+export GROQ_API_KEY=your_groq_api_key
 ```
 
 ### Enable LLM Analysis
@@ -107,11 +99,11 @@ export OPENAI_API_KEY=your_openai_api_key
 ### Optional Settings
 
 ```bash
-# Provider selection (only 'openai' is supported now)
-export LLM_PROVIDER=openai  # or 'local' for fallback
+# Provider selection (only 'groq' is supported)
+export LLM_PROVIDER=groq
 
 # Model selection (auto-selects best if not set)
-export LLM_MODEL=gpt-4o-mini  # or 'gpt-4'
+export LLM_MODEL=llama-3.1-70b-versatile  # or 'mixtral-8x7b-32768'
 ```
 
 ### In-Code Configuration
@@ -122,11 +114,11 @@ Edit `main.py`:
 # Enable/disable LLM news analysis
 LLM_NEWS_ANALYSIS_ENABLED = True  # Set to False to disable
 
-# Provider: 'openai' or 'local'
-LLM_PROVIDER = 'openai'
+# Provider: only 'groq' is supported
+LLM_PROVIDER = 'groq'
 
 # Model name (None = auto-select)
-LLM_MODEL = None  # or 'gpt-4o-mini', 'gpt-4'
+LLM_MODEL = None  # or 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768'
 
 # Sentiment blending weight (0.0 = all basic, 1.0 = all LLM)
 LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
@@ -144,8 +136,8 @@ LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
 
 ### Cost Estimates
 
-#### OpenAI GPT-4o-mini
-- **Cost**: $0.15 per 1M input tokens, $0.60 per 1M output tokens
+#### Groq
+- **Cost**: Free tier available with rate limits
 - **Per run**: ~$0.01
 - **Per day**: ~$0.24
 - **Per month**: ~$7.20
@@ -153,11 +145,10 @@ LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
 ### Cost Optimization
 
 1. **Limit articles**: Analyze only 5-10 most recent per symbol
-2. **Use gpt-4o-mini**: Much cheaper than GPT-4
-3. **Batch less frequently**: Run every 2-4 hours instead of hourly
-4. **Filter by impact**: Only use LLM for high-priority news
-5. **Disable when not needed**: Turn off during low-volatility periods
-6. **News deduplication**: Automatic caching prevents re-analyzing the same articles
+2. **Batch less frequently**: Run every 2-4 hours instead of hourly
+3. **Filter by impact**: Only use LLM for high-priority news
+4. **Disable when not needed**: Turn off during low-volatility periods
+5. **News deduplication**: Automatic caching prevents re-analyzing the same articles
 
 ## ML Integration
 
@@ -215,7 +206,7 @@ Test with specific news:
 ```python
 from llm_news_analyzer import LLMNewsAnalyzer
 
-analyzer = LLMNewsAnalyzer(provider='openai')
+analyzer = LLMNewsAnalyzer(provider='groq')
 
 article = {
     'title': 'ECB Announces Rate Hike',
@@ -237,7 +228,7 @@ Look for this in bot output:
 
 ```
 LLM_NEWS_ANALYSIS: Enabled
-OPENAI_API_KEY: Set
+GROQ_API_KEY: Set
 ```
 
 ### Enable Debug Logging
@@ -259,8 +250,8 @@ INFO:llm_news_analyzer:Enhanced sentiment for EURUSD: 0.300 -> 0.450 (confidence
 **Cause**: Missing API key or library
 **Solution**: 
 ```bash
-pip install openai
-export OPENAI_API_KEY=your_key
+pip install groq
+export GROQ_API_KEY=your_key
 export LLM_NEWS_ANALYSIS_ENABLED=true
 ```
 
@@ -269,11 +260,10 @@ export LLM_NEWS_ANALYSIS_ENABLED=true
 **Cause**: Model output not properly formatted
 **Solution**: Already handled - falls back to default result
 
-#### Issue: High API costs
+#### Issue: High API usage
 
 **Cause**: Too many API calls
 **Solution**: 
-- Use GPT-4o-mini instead of GPT-4
 - Reduce articles analyzed (change 10 to 5)
 - Increase trading interval (2-4 hours instead of 1 hour)
 
@@ -313,24 +303,22 @@ export LLM_NEWS_ANALYSIS_ENABLED=true
 
 ### Optimization Tips
 
-1. **Start with GPT-4o-mini**: Much cheaper, still excellent quality
-2. **Analyze fewer articles**: 5-10 most recent is usually enough
-3. **Use time filters**: Only analyze news from last 24 hours
-4. **Monitor costs**: Check OpenAI/Anthropic dashboard regularly
-5. **A/B test**: Compare win rates with vs without LLM
-6. **Batch processing**: Analyze multiple articles in one call when possible
+1. **Analyze fewer articles**: 5-10 most recent is usually enough
+2. **Use time filters**: Only analyze news from last 24 hours
+3. **Monitor usage**: Check Groq dashboard for rate limits
+4. **A/B test**: Compare win rates with vs without LLM
+5. **Batch processing**: Analyze multiple articles in one call when possible
 
 ## Future Enhancements
 
 Planned improvements:
 
-1. **Local LLM support**: Run Llama 3 or Mistral locally (free)
-2. **Multi-article synthesis**: Analyze multiple articles together for context
-3. **Real-time events**: Priority processing for breaking news
-4. **Custom prompts**: User-configurable analysis prompts
-5. **Sentiment history**: Track LLM sentiment over time
-6. **Confidence calibration**: Tune confidence thresholds based on results
-7. **Enhanced deduplication**: More sophisticated caching strategies
+1. **Multi-article synthesis**: Analyze multiple articles together for context
+2. **Real-time events**: Priority processing for breaking news
+3. **Custom prompts**: User-configurable analysis prompts
+4. **Sentiment history**: Track LLM sentiment over time
+5. **Confidence calibration**: Tune confidence thresholds based on results
+6. **Enhanced deduplication**: More sophisticated caching strategies
 
 ## FAQ
 
@@ -338,16 +326,16 @@ Planned improvements:
 A: No, it's completely optional. The bot works great without it.
 
 **Q: Which LLM provider is supported?**
-A: Only OpenAI is supported. We recommend GPT-4o-mini for the best cost/quality balance.
+A: Only Groq is supported. We recommend llama-3.1-70b-versatile for the best balance.
 
 **Q: Can I use a local LLM?**
-A: Not yet, but it's planned. For now, only OpenAI is supported.
+A: No, local LLM support has been removed. Only Groq is supported.
 
 **Q: What if the LLM API fails?**
-A: The bot falls back to keyword-based analysis automatically.
+A: The bot returns an error result indicating the failure.
 
 **Q: How much does it cost?**
-A: With GPT-4o-mini, ~$0.01 per run or ~$7/month for 24/7 hourly trading.
+A: Groq offers a free tier with rate limits.
 
 **Q: Will LLM guarantee profits?**
 A: No. It improves trade quality but doesn't eliminate market risk.
@@ -366,9 +354,8 @@ A: No, the bot automatically caches analyzed articles and skips duplicates to sa
 LLM-enhanced news analysis is a powerful **optional** feature that significantly improves the bot's ability to understand and trade on news events. It's:
 
 - **Easy to enable**: Just set API key and enable flag
-- **Cost-effective**: ~$7/month with GPT-4o-mini
-- **Gracefully degrading**: Falls back automatically if unavailable
+- **Cost-effective**: Free tier available with Groq
 - **ML-integrated**: Feeds 2 new features to predictor
 - **Production-ready**: Fully tested and error-handled
 
-For most users, the improved win rate (5-10%) easily justifies the modest API costs.
+For most users, the improved win rate (5-10%) easily justifies using the feature.
