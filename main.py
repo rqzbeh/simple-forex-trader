@@ -419,8 +419,10 @@ MARKET_SESSIONS = [
 # Correlation analysis settings
 CORRELATION_THRESHOLD = 0.7  # Avoid highly correlated pairs (>70% correlation)
 CORRELATION_PERIOD_DAYS = 30  # Look back 30 days for correlation
+MIN_CORRELATION_DATA_POINTS = 10  # Minimum data points needed for correlation calculation
 
 # Economic calendar high-impact keywords (filter trades during major events)
+# TODO: Consider moving to external config file for easier updates
 HIGH_IMPACT_KEYWORDS = [
     'FOMC', 'Federal Reserve', 'interest rate decision', 'NFP', 'non-farm payroll',
     'CPI', 'inflation report', 'GDP', 'ECB meeting', 'central bank meeting',
@@ -453,7 +455,7 @@ def calculate_correlation(symbol1_yf, symbol2_yf, days=30):
         hist1 = ticker1.history(period=f'{days}d', interval='1d')
         hist2 = ticker2.history(period=f'{days}d', interval='1d')
         
-        if hist1.empty or hist2.empty or len(hist1) < 10 or len(hist2) < 10:
+        if hist1.empty or hist2.empty or len(hist1) < MIN_CORRELATION_DATA_POINTS or len(hist2) < MIN_CORRELATION_DATA_POINTS:
             return None
         
         # Get returns for both
@@ -463,7 +465,7 @@ def calculate_correlation(symbol1_yf, symbol2_yf, days=30):
         # Align the indices
         df = pd.DataFrame({'r1': returns1, 'r2': returns2}).dropna()
         
-        if len(df) < 10:
+        if len(df) < MIN_CORRELATION_DATA_POINTS:
             return None
         
         # Calculate correlation
@@ -1490,8 +1492,9 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     vol = market_data.get('volatility_hourly', 0.0)
     atr_pct = market_data.get('atr_pct', 0.005)
     # Determine stop loss percent (use ATR with safer minimum)
+    # Note: Assumes 4-decimal place pairs (e.g., EUR/USD). JPY pairs may need adjustment.
     if kind == 'forex':
-        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.5, 0.002))  # Min 10 pips, max 20 pips
+        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.5, 0.002))  # Min ~10 pips, max ~20 pips for 4-decimal pairs
     else:
         stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.0, 0.002))  # More conservative for commodities
 
@@ -2051,12 +2054,12 @@ def main(backtest_only=False):
     
     # Check for high-impact economic events
     high_impact_detected = has_high_impact_event(articles)
+    leverage_multiplier = 1.0  # Default multiplier
     if high_impact_detected and not backtest_only:
         print("⚠️  HIGH IMPACT EVENT - Reducing position sizes and tightening stops")
-        # Reduce leverage during high-impact events
-        global MAX_LEVERAGE_FOREX
-        MAX_LEVERAGE_FOREX = int(MAX_LEVERAGE_FOREX * 0.5)  # Half leverage during events
-        print(f"Temporary leverage reduced to {MAX_LEVERAGE_FOREX}x for safety")
+        # Reduce leverage during high-impact events (use local multiplier, not global change)
+        leverage_multiplier = 0.5  # Half leverage during events
+        print(f"Temporary leverage multiplier: {leverage_multiplier}x for safety")
 
     # Initialize with default symbols (news optional)
     symbol_articles = {}
@@ -2118,6 +2121,11 @@ def main(backtest_only=False):
         current_daily_risk = get_daily_risk()
         if current_daily_risk + trade_risk > DAILY_RISK_LIMIT:
             continue  # Skip this trade to stay within daily risk limit
+        
+        # Apply high-impact event leverage multiplier
+        if leverage_multiplier < 1.0:
+            plan['recommended_leverage'] = int(plan['recommended_leverage'] * leverage_multiplier)
+            plan['recommended_leverage'] = max(1, plan['recommended_leverage'])  # Ensure at least 1x
 
         # Low money adjustments: if entry * leverage < $100, boost ROI and leverage for better R/R
         entry_cost = market['price'] * plan['recommended_leverage']
