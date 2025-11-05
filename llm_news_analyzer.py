@@ -15,30 +15,28 @@ from collections import deque
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Try to import OpenAI
+# Try to import Groq
 try:
-    import openai
-    OPENAI_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
-    logger.warning("OpenAI library not available. Install with: pip install openai")
-
-# Anthropic support removed - use OpenAI only
+    GROQ_AVAILABLE = False
+    logger.warning("Groq library not available. Install with: pip install groq")
 
 
 class LLMNewsAnalyzer:
-    """Analyzes news using LLM to predict market impact - OpenAI only"""
+    """Analyzes news using LLM to predict market impact - Groq only"""
     
     # Class constant for cache size limit
     MAX_CACHE_SIZE = 1000
     
-    def __init__(self, provider: str = 'openai', model: Optional[str] = None):
+    def __init__(self, provider: str = 'groq', model: Optional[str] = None):
         """
         Initialize LLM News Analyzer
         
         Args:
-            provider: Only 'openai' is supported. Use 'local' for basic fallback.
-            model: Model name (e.g., 'gpt-4o-mini', 'gpt-4')
+            provider: Only 'groq' is supported.
+            model: Model name (e.g., 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768')
         """
         self.provider = provider.lower()
         self.model = model
@@ -51,14 +49,11 @@ class LLMNewsAnalyzer:
         self._load_cache()
         
         # Initialize based on provider
-        if self.provider == 'openai':
-            self._init_openai()
-        elif self.provider == 'local':
-            self._init_local()
+        if self.provider == 'groq':
+            self._init_groq()
         else:
-            logger.warning(f"Provider '{provider}' not supported. Only 'openai' and 'local' are available. Using fallback.")
-            self.provider = 'local'
-            self._init_local()
+            logger.error(f"Provider '{provider}' not supported. Only 'groq' is supported.")
+            raise ValueError(f"Unsupported provider: {provider}. Only 'groq' is supported.")
     
     def _load_cache(self):
         """Load analyzed news cache from disk"""
@@ -130,25 +125,20 @@ class LLMNewsAnalyzer:
         
         self._save_cache()
     
-    def _init_openai(self):
-        """Initialize OpenAI client"""
-        if not OPENAI_AVAILABLE:
-            logger.error("OpenAI not available. Install with: pip install openai")
+    def _init_groq(self):
+        """Initialize Groq client"""
+        if not GROQ_AVAILABLE:
+            logger.error("Groq not available. Install with: pip install groq")
             return
         
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('GROQ_API_KEY')
         if not api_key:
-            logger.warning("OPENAI_API_KEY not set. LLM analysis will be disabled.")
+            logger.warning("GROQ_API_KEY not set. LLM analysis will be disabled.")
             return
         
-        self.client = openai.OpenAI(api_key=api_key)
-        self.model = self.model or 'gpt-4o-mini'  # Default to more affordable model
-        logger.info(f"Initialized OpenAI with model: {self.model}")
-    
-    def _init_local(self):
-        """Initialize local LLM (placeholder for future implementation)"""
-        logger.warning("Local LLM not yet implemented. Falling back to basic analysis.")
-        self.client = None
+        self.client = Groq(api_key=api_key)
+        self.model = self.model or 'llama-3.1-70b-versatile'  # Default to versatile model
+        logger.info(f"Initialized Groq with model: {self.model}")
     
     def analyze_news_article(self, article: Dict[str, str], symbol: str = '') -> Dict:
         """
@@ -184,21 +174,26 @@ class LLMNewsAnalyzer:
             }
         
         if not self.client:
-            # Fallback to basic analysis - still mark as analyzed
-            result = self._basic_analysis(article, symbol)
-            self._mark_as_analyzed(article)
-            result['was_cached'] = False
-            return result
+            # No client available - cannot analyze
+            logger.error("No LLM client available. GROQ_API_KEY must be set.")
+            return {
+                'sentiment_score': 0.0,
+                'market_impact': 'low',
+                'affected_instruments': [],
+                'time_horizon': 'short_term',
+                'confidence': 0.0,
+                'reasoning': 'LLM client not available - GROQ_API_KEY not set',
+                'people_impact': 'Cannot analyze',
+                'market_mechanism': 'No LLM available',
+                'was_cached': False
+            }
         
         try:
             # Prepare prompt
             prompt = self._create_analysis_prompt(article, symbol)
             
-            # Call LLM - only OpenAI is supported now
-            if self.provider == 'openai':
-                response = self._call_openai(prompt)
-            else:
-                response = self._basic_analysis(article, symbol)
+            # Call LLM - only Groq is supported
+            response = self._call_groq(prompt)
             
             # Mark as analyzed
             self._mark_as_analyzed(article)
@@ -209,10 +204,18 @@ class LLMNewsAnalyzer:
         except Exception as e:
             logger.error(f"LLM analysis error: {e}")
             # Still mark as analyzed even on error to avoid repeated failures
-            result = self._basic_analysis(article, symbol)
             self._mark_as_analyzed(article)
-            result['was_cached'] = False
-            return result
+            return {
+                'sentiment_score': 0.0,
+                'market_impact': 'low',
+                'affected_instruments': [],
+                'time_horizon': 'short_term',
+                'confidence': 0.0,
+                'reasoning': f'Analysis failed: {str(e)}',
+                'people_impact': 'Error occurred',
+                'market_mechanism': 'Analysis error',
+                'was_cached': False
+            }
     
     def _create_analysis_prompt(self, article: Dict[str, str], symbol: str) -> str:
         """Create prompt for LLM analysis"""
@@ -254,8 +257,8 @@ Return ONLY valid JSON, no additional text."""
         
         return prompt
     
-    def _call_openai(self, prompt: str) -> Dict:
-        """Call OpenAI API"""
+    def _call_groq(self, prompt: str) -> Dict:
+        """Call Groq API"""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -274,50 +277,11 @@ Return ONLY valid JSON, no additional text."""
             return self._normalize_result(result)
         
         except json.JSONDecodeError as e:
-            logger.error(f"OpenAI returned invalid JSON: {e}")
+            logger.error(f"Groq returned invalid JSON: {e}")
             return self._default_result()
         except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
+            logger.error(f"Groq API error: {e}")
             return self._default_result()
-    
-    def _basic_analysis(self, article: Dict[str, str], symbol: str) -> Dict:
-        """Fallback basic analysis without LLM"""
-        title = article.get('title', '').lower()
-        description = article.get('description', '').lower()
-        text = f"{title} {description}"
-        
-        # Simple keyword-based sentiment
-        bullish_keywords = ['rise', 'gain', 'increase', 'growth', 'strong', 'positive', 'rally', 'surge', 'boost']
-        bearish_keywords = ['fall', 'drop', 'decline', 'weak', 'negative', 'crash', 'plunge', 'cut']
-        
-        bullish_count = sum(1 for word in bullish_keywords if word in text)
-        bearish_count = sum(1 for word in bearish_keywords if word in text)
-        
-        sentiment = (bullish_count - bearish_count) / max(bullish_count + bearish_count, 1)
-        sentiment = max(-1.0, min(1.0, sentiment))
-        
-        # Determine impact
-        high_impact_keywords = ['fed', 'ecb', 'bank', 'rate', 'inflation', 'gdp', 'employment', 'crisis', 'war']
-        impact_count = sum(1 for word in high_impact_keywords if word in text)
-        
-        if impact_count >= 2:
-            impact = 'high'
-        elif impact_count >= 1:
-            impact = 'medium'
-        else:
-            impact = 'low'
-        
-        return {
-            'sentiment_score': sentiment,
-            'market_impact': impact,
-            'affected_instruments': [symbol] if symbol else ['EURUSD', 'XAUUSD'],
-            'time_horizon': 'short_term',
-            'confidence': 0.5,
-            'reasoning': 'Basic keyword-based analysis (LLM not available)',
-            'people_impact': 'General market sentiment impact',
-            'market_mechanism': 'Direct market reaction to news sentiment',
-            'was_cached': False  # Basic analysis is never cached
-        }
     
     def _normalize_result(self, result: Dict) -> Dict:
         """Normalize and validate LLM result"""
@@ -435,7 +399,7 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     Get or create global LLM analyzer instance
     
     Args:
-        provider: Only 'openai' or 'local' supported
+        provider: Only 'groq' is supported
         model: Model name
     
     Returns:
@@ -445,10 +409,10 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     
     # Determine provider from environment if not specified
     if provider is None:
-        if os.getenv('OPENAI_API_KEY'):
-            provider = 'openai'
+        if os.getenv('GROQ_API_KEY'):
+            provider = 'groq'
         else:
-            provider = 'local'  # Fallback
+            raise ValueError("GROQ_API_KEY environment variable must be set")
     
     if _llm_analyzer is None:
         _llm_analyzer = LLMNewsAnalyzer(provider=provider, model=model)
