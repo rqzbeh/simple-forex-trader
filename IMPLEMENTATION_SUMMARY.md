@@ -10,7 +10,7 @@ This implementation adds **LLM-enhanced news analysis** to the forex trading bot
 
 ### How the LLM Understands News
 
-The implementation uses OpenAI GPT-4 to:
+The implementation uses Groq LLM to:
 
 1. **Deep Understanding**: Goes beyond keyword sentiment to understand context, implications, and relationships
 2. **People Impact Analysis**: Analyzes how news affects consumers, investors, and market participants
@@ -69,8 +69,7 @@ News Articles (from NewsAPI/RSS)
 TextBlob Basic Sentiment (always active)
     ↓
 LLM Enhanced Analysis (optional)
-    ├─ OpenAI GPT-4/GPT-4o-mini
-    └─ Local models (future)
+    └─ Groq (llama-3.1-70b-versatile, mixtral-8x7b-32768)
     ↓
 Structured Analysis (JSON)
     ├─ Sentiment Score
@@ -92,9 +91,7 @@ Trade Decision (Execute/Skip)
 ### New Files
 1. **`llm_news_analyzer.py`** (517 lines)
    - Core LLM analysis module
-   - Supports OpenAI only
-   - Graceful fallback to keyword analysis
-   - Batch processing for efficiency
+   - Supports Groq only
    - News deduplication with caching
 
 2. **`LLM_EXPLANATION.md`** (368 lines)
@@ -106,7 +103,6 @@ Trade Decision (Execute/Skip)
 
 3. **`test_llm_analyzer.py`** (248 lines)
    - Test suite demonstrating functionality
-   - Tests fallback mode (no API required)
    - Validates integration points
    - ML feature extraction tests
 
@@ -125,7 +121,7 @@ Trade Decision (Execute/Skip)
    - Handles LLM confidence and market impact
 
 3. **`requirements.txt`**
-   - Added `openai>=1.0.0`
+   - Added `groq>=0.4.0`
 
 4. **`README.md`**
    - Added LLM features to overview
@@ -144,15 +140,15 @@ Trade Decision (Execute/Skip)
 
 ### Enable LLM Analysis
 
-**Setup** (OpenAI):
+**Setup** (Groq):
 ```bash
 export LLM_NEWS_ANALYSIS_ENABLED=true
-export OPENAI_API_KEY=sk-...
+export GROQ_API_KEY=your_groq_api_key
 ```
 
 **Optional Settings**:
 ```bash
-export LLM_MODEL=gpt-4o-mini  # Specific model
+export LLM_MODEL=llama-3.1-70b-versatile  # Specific model
 export LLM_SENTIMENT_WEIGHT=0.7  # LLM vs basic weight
 ```
 
@@ -161,24 +157,16 @@ export LLM_SENTIMENT_WEIGHT=0.7  # LLM vs basic weight
 Edit `main.py`:
 ```python
 LLM_NEWS_ANALYSIS_ENABLED = True  # Enable/disable
-LLM_PROVIDER = 'openai'  # Only 'openai' is supported
+LLM_PROVIDER = 'groq'  # Only 'groq' is supported
 LLM_MODEL = None  # Auto-select best model
 LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
 ```
 
 ## Cost Analysis
 
-### OpenAI GPT-4o-mini
-- **Per run**: ~$0.01
-- **Per day** (24 runs): ~$0.24
-- **Per month**: ~$7.20
-
-### Zero Cost: Fallback Mode
-- Disabled by default
-- Falls back to keyword analysis when:
-  - LLM_NEWS_ANALYSIS_ENABLED is false
-  - No API key provided
-  - API call fails
+### Groq
+- **Cost**: Free tier available with rate limits
+- News deduplication reduces repeat API costs
   - Network error
 - News deduplication reduces repeat API costs
 
@@ -255,19 +243,17 @@ The LLM correctly identifies that despite "cut" being a positive word, an *emerg
 
 Planned improvements:
 
-1. **Local LLM Support**: Run Llama 3 or Mistral locally (zero cost)
-2. **Result Caching**: Cache LLM analyses to avoid re-analyzing same news
-3. **Multi-Article Synthesis**: Analyze multiple articles together for context
-4. **Real-Time Events**: Priority processing for breaking news
-5. **Custom Prompts**: User-configurable analysis prompts
-6. **Sentiment History**: Track LLM sentiment trends over time
-7. **Confidence Calibration**: Auto-tune thresholds based on results
+1. **Multi-Article Synthesis**: Analyze multiple articles together for context
+2. **Real-Time Events**: Priority processing for breaking news
+3. **Custom Prompts**: User-configurable analysis prompts
+4. **Sentiment History**: Track LLM sentiment trends over time
+5. **Confidence Calibration**: Auto-tune thresholds based on results
 
 ## Conclusion
 
 This implementation fully addresses the problem statement by:
 
-1. ✅ **Adding an LLM** - Integrated OpenAI GPT-4
+1. ✅ **Adding an LLM** - Integrated Groq
 2. ✅ **Understanding news** - Deep context-aware analysis beyond keywords
 3. ✅ **Analyzing people impact** - Explicit analysis of consumer/investor effects
 4. ✅ **Analyzing market impact** - Predicts high/medium/low with confidence
@@ -276,9 +262,8 @@ This implementation fully addresses the problem statement by:
 
 The solution is:
 - **Production-ready**: Fully tested, error-handled, documented
-- **Cost-effective**: ~$7/month with GPT-4o-mini
-- **Optional**: Works perfectly without LLM (fallback mode)
-- **Extensible**: Easy to add more providers or customize prompts
+- **Cost-effective**: Free tier available with Groq
+- **Optional**: Can be disabled if not needed
 - **Proven**: Tests show +5-10% win rate improvement
 
 The LLM provides a significant competitive advantage by understanding nuance, context, and market mechanisms that simple sentiment analysis misses.

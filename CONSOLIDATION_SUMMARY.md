@@ -68,12 +68,11 @@ This document summarizes the consolidation of all open pull requests into a sing
 **Status**: ✅ Merged  
 **Key Features**:
 - `llm_news_analyzer.py` - LLM-enhanced news analysis
-- Support for OpenAI GPT-4 models
+- Support for Groq LLM models
 - Deep news understanding with market impact prediction
 - Sentiment blending with traditional TextBlob analysis
 - 2 new ML features (llm_confidence, llm_market_impact)
-- Optional feature (disabled by default, zero API cost)
-- Graceful fallback to keyword-based analysis
+- Optional feature (disabled by default)
 - **News deduplication**: Automatic caching to prevent re-analyzing same articles
 - Comprehensive documentation (LLM_EXPLANATION.md)
 
@@ -84,7 +83,7 @@ This document summarizes the consolidation of all open pull requests into a sing
 **Files Modified**:
 - main.py (+62 lines for LLM integration)
 - ml_predictor.py (+11 lines for LLM features)
-- requirements.txt (added openai)
+- requirements.txt (added groq)
 
 ## Combined Features Summary
 
@@ -98,7 +97,7 @@ This document summarizes the consolidation of all open pull requests into a sing
 2. **News Analysis Stack (3 layers)**
    - **Basic**: TextBlob sentiment analysis (always active)
    - **AI**: News impact prediction with ML (always active if trained)
-   - **LLM**: Deep understanding with GPT-4 (optional, opt-in)
+   - **LLM**: Deep understanding with Groq (optional, opt-in)
 
 3. **Failure Detection**
    - Distinguishes news-driven vs logic-driven failures
@@ -125,7 +124,7 @@ scikit-learn>=1.3.0
 numpy>=1.24.0
 pandas>=2.0.0
 joblib>=1.3.0
-openai>=1.0.0       # Optional, for LLM
+groq>=0.4.0       # For LLM
 ```
 
 ### File Statistics
@@ -197,7 +196,7 @@ pip install -r requirements.txt
 ```bash
 # Enable LLM analysis (optional)
 export LLM_NEWS_ANALYSIS_ENABLED=true
-export OPENAI_API_KEY=your_key_here
+export GROQ_API_KEY=your_key_here
 ```
 
 ## Benefits of Consolidation
