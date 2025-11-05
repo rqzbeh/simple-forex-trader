@@ -9,3 +9,9 @@ twelvedata
 fmp-python
 quandl
 fredapi
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+joblib>=1.3.0
+openai>=1.0.0
+anthropic>=0.18.0

@@ -62,3 +62,16 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# ML models and data
+ml_model.pkl
+ml_scaler.pkl
+ml_last_train.json
+trade_log.json
+daily_risk.json
+
+# Test/demo files
+test_*.pkl
+test_*.json
+test_*.py
+
