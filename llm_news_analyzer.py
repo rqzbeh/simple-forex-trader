@@ -7,8 +7,9 @@ import os
 import json
 import logging
 import hashlib
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+from collections import deque
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +40,7 @@ class LLMNewsAnalyzer:
         self.provider = provider.lower()
         self.model = model
         self.client = None
-        self.analyzed_news_cache: Set[str] = set()  # Track analyzed articles
+        self.analyzed_news_cache: deque = deque(maxlen=1000)  # Track analyzed articles (max 1000)
         self.cache_file = 'analyzed_news_cache.json'
         
         # Load cached news hashes
@@ -61,20 +62,18 @@ class LLMNewsAnalyzer:
             if os.path.exists(self.cache_file):
                 with open(self.cache_file, 'r') as f:
                     cache_data = json.load(f)
-                    self.analyzed_news_cache = set(cache_data.get('hashes', []))
+                    hashes = cache_data.get('hashes', [])
+                    # Load into deque (will automatically limit to maxlen)
+                    for h in hashes:
+                        self.analyzed_news_cache.append(h)
                 logger.info(f"Loaded {len(self.analyzed_news_cache)} cached news hashes")
         except Exception as e:
             logger.error(f"Error loading news cache: {e}")
-            self.analyzed_news_cache = set()
+            self.analyzed_news_cache = deque(maxlen=1000)
     
     def _save_cache(self):
         """Save analyzed news cache to disk"""
         try:
-            # Keep only the most recent 1000 hashes to prevent unlimited growth
-            if len(self.analyzed_news_cache) > 1000:
-                # Convert to list, keep last 1000, convert back to set
-                self.analyzed_news_cache = set(list(self.analyzed_news_cache)[-1000:])
-            
             with open(self.cache_file, 'w') as f:
                 json.dump({'hashes': list(self.analyzed_news_cache)}, f)
             logger.debug(f"Saved {len(self.analyzed_news_cache)} news hashes to cache")
@@ -97,7 +96,7 @@ class LLMNewsAnalyzer:
     def _mark_as_analyzed(self, article: Dict[str, str]):
         """Mark article as analyzed"""
         article_hash = self._get_article_hash(article)
-        self.analyzed_news_cache.add(article_hash)
+        self.analyzed_news_cache.append(article_hash)  # deque automatically removes oldest if full
         self._save_cache()
     
     def _init_openai(self):
