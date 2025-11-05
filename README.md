@@ -1,6 +1,6 @@
 # Forex, Commodities & Indices News Trading Bot
 
-A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, and **advanced quantitative risk management** for automated trading.
+A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, **advanced quantitative risk management**, and **self-learning parameters** for automated trading.
 
 ## Features
 
@@ -16,6 +16,7 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - **Rate limiting**: Built-in Groq free tier limit enforcement (1k requests/day, 500K tokens/day)
   - **Duplicate detection**: Automatically skips already-analyzed news articles
   - **Free tier available** with Groq
+  - **Async/Concurrent**: Parallel news analysis for 3-4x faster execution
 
 - **Market Psychology Analysis**: AI-powered detection of fear, greed, and irrational behavior
   - Analyzes market sentiment beyond fundamentals (fear, greed, panic, euphoria, uncertainty)
@@ -27,14 +28,25 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Helps identify when technical analysis may be unreliable due to panic/euphoria
   - **AI Performance Tracker**: Learns from emotional trade failures to improve psychology analysis
 
-- **Advanced Risk Management** (NEW - Inspired by Renaissance Technologies):
+- **Advanced Risk Management** (Inspired by Renaissance Technologies):
   - **Kelly Criterion Position Sizing**: Optimal position sizing based on win rate and risk/reward
   - **Market Regime Detection**: Auto-detects trending, ranging, or volatile markets
   - **Correlation-Based Trade Filtering**: Prevents opening correlated positions that compound risk
   - **Sharpe Ratio Optimization**: Dynamically adjusts component weights based on risk-adjusted returns
   - **Multi-layer Risk Controls**: Daily limits, per-trade limits, correlation-adjusted exposure
   - **Dynamic Stop-Loss**: ATR-based stops that adapt to market volatility
+  - **Learnable Parameters**: All thresholds and multipliers adapt based on trading performance
   - Configurable via environment variables (all features can be enabled/disabled)
+
+- **Self-Learning Parameters** (NEW): Parameters that adapt based on performance
+  - **Kelly Fraction**: Learns optimal leverage from win/loss patterns (0.3-0.7 range)
+  - **Regime Thresholds**: ADX, volatility, trend agreement thresholds adapt to market behavior
+  - **Correlation Limits**: Adjusts based on actual correlated trade performance
+  - **Stop Multipliers**: Learns optimal stop-loss widths for different market regimes
+  - **Psychology Thresholds**: Adjusts irrationality detection based on prediction accuracy
+  - **Component Weights**: Sharpe-based optimization of technical/sentiment/psychology/ML weights
+  - All parameters start with research-based defaults and improve over time
+  - Stored in `learnable_params.json` (automatically managed)
 
 - **Dual Machine Learning System**: Two ML models work together for optimal performance
   - **ML System 1** (ml_predictor.py): Optimizes technical analysis, learns from analytical failures

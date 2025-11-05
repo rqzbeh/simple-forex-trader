@@ -77,6 +77,7 @@ analyzed_news_cache.json
 groq_usage.json
 ai_performance_data.json
 advanced_risk_data.json
+learnable_params.json
 
 # Test/demo data files (but not test scripts)
 test_*.pkl
