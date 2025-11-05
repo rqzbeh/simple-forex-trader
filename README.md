@@ -4,7 +4,10 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 
 ## Features
 
-- **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources, with support for additional news sources
+- **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources
+  - Includes 27 news sources from reputable financial outlets
+  - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
+  - Web sources: Forex Factory, DailyFX, Investing.com, FXStreet, ForexLive, and others
 - **Sentiment Analysis**: Uses TextBlob to analyze news sentiment, with boosts for central bank and economic data sources
 - **Technical Analysis**: Incorporates Ichimoku Cloud, volume analysis, Fair Value Gaps (FVG), and candlestick patterns optimized for forex, commodities, and indices markets
 - **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
