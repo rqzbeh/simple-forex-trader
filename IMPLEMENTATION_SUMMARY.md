@@ -10,7 +10,7 @@ This implementation adds **LLM-enhanced news analysis** to the forex trading bot
 
 ### How the LLM Understands News
 
-The implementation uses state-of-the-art Large Language Models (GPT-4 or Claude) to:
+The implementation uses OpenAI GPT-4 to:
 
 1. **Deep Understanding**: Goes beyond keyword sentiment to understand context, implications, and relationships
 2. **People Impact Analysis**: Analyzes how news affects consumers, investors, and market participants
@@ -70,7 +70,6 @@ TextBlob Basic Sentiment (always active)
     ↓
 LLM Enhanced Analysis (optional)
     ├─ OpenAI GPT-4/GPT-4o-mini
-    ├─ Anthropic Claude 3.5 Sonnet
     └─ Local models (future)
     ↓
 Structured Analysis (JSON)
@@ -93,9 +92,10 @@ Trade Decision (Execute/Skip)
 ### New Files
 1. **`llm_news_analyzer.py`** (517 lines)
    - Core LLM analysis module
-   - Supports OpenAI and Anthropic
+   - Supports OpenAI only
    - Graceful fallback to keyword analysis
    - Batch processing for efficiency
+   - News deduplication with caching
 
 2. **`LLM_EXPLANATION.md`** (368 lines)
    - Comprehensive documentation
@@ -126,7 +126,6 @@ Trade Decision (Execute/Skip)
 
 3. **`requirements.txt`**
    - Added `openai>=1.0.0`
-   - Added `anthropic>=0.18.0`
 
 4. **`README.md`**
    - Added LLM features to overview
@@ -145,17 +144,10 @@ Trade Decision (Execute/Skip)
 
 ### Enable LLM Analysis
 
-**Minimal Setup** (OpenAI):
+**Setup** (OpenAI):
 ```bash
 export LLM_NEWS_ANALYSIS_ENABLED=true
 export OPENAI_API_KEY=sk-...
-```
-
-**Alternative** (Anthropic):
-```bash
-export LLM_NEWS_ANALYSIS_ENABLED=true
-export ANTHROPIC_API_KEY=sk-ant-...
-export LLM_PROVIDER=anthropic
 ```
 
 **Optional Settings**:
@@ -169,22 +161,17 @@ export LLM_SENTIMENT_WEIGHT=0.7  # LLM vs basic weight
 Edit `main.py`:
 ```python
 LLM_NEWS_ANALYSIS_ENABLED = True  # Enable/disable
-LLM_PROVIDER = 'openai'  # 'openai', 'anthropic', 'local'
+LLM_PROVIDER = 'openai'  # Only 'openai' is supported
 LLM_MODEL = None  # Auto-select best model
 LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
 ```
 
 ## Cost Analysis
 
-### Recommended: OpenAI GPT-4o-mini
+### OpenAI GPT-4o-mini
 - **Per run**: ~$0.01
 - **Per day** (24 runs): ~$0.24
 - **Per month**: ~$7.20
-
-### Alternative: Anthropic Claude
-- **Per run**: ~$0.04
-- **Per day** (24 runs): ~$0.96
-- **Per month**: ~$28.80
 
 ### Zero Cost: Fallback Mode
 - Disabled by default
@@ -193,6 +180,7 @@ LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
   - No API key provided
   - API call fails
   - Network error
+- News deduplication reduces repeat API costs
 
 ## Performance Impact
 
@@ -279,7 +267,7 @@ Planned improvements:
 
 This implementation fully addresses the problem statement by:
 
-1. ✅ **Adding an LLM** - Integrated OpenAI GPT-4 and Anthropic Claude
+1. ✅ **Adding an LLM** - Integrated OpenAI GPT-4
 2. ✅ **Understanding news** - Deep context-aware analysis beyond keywords
 3. ✅ **Analyzing people impact** - Explicit analysis of consumer/investor effects
 4. ✅ **Analyzing market impact** - Predicts high/medium/low with confidence

@@ -61,7 +61,7 @@ Trade Decision + ML Prediction
 
 1. **Input**: News article with title, description, and source
 2. **Prompt Engineering**: Specialized financial analyst prompt
-3. **LLM Call**: OpenAI GPT-4 or Anthropic Claude
+3. **LLM Call**: OpenAI GPT-4
 4. **Structured Output**: JSON with sentiment, impact, reasoning, etc.
 5. **Validation**: Normalize and validate LLM response
 6. **Blending**: Weighted average with basic sentiment
@@ -70,21 +70,13 @@ Trade Decision + ML Prediction
 
 ### Supported LLM Providers
 
-#### OpenAI (Recommended)
+#### OpenAI
 
 - **Models**: GPT-4o-mini (default), GPT-4, GPT-4-turbo
 - **Cost**: ~$0.15 per million tokens (very affordable with gpt-4o-mini)
 - **Quality**: Excellent financial analysis
 - **Speed**: Fast responses (~1-2 seconds)
 - **Setup**: Set `OPENAI_API_KEY` environment variable
-
-#### Anthropic
-
-- **Models**: Claude 3.5 Sonnet (default), Claude 3 Opus
-- **Cost**: ~$3 per million tokens
-- **Quality**: Exceptional reasoning and context understanding
-- **Speed**: Fast responses (~1-2 seconds)
-- **Setup**: Set `ANTHROPIC_API_KEY` environment variable
 
 #### Local (Future)
 
@@ -105,22 +97,21 @@ export LLM_NEWS_ANALYSIS_ENABLED=true
 export OPENAI_API_KEY=your_openai_api_key
 ```
 
-Or for Anthropic:
+### Enable LLM Analysis
 
 ```bash
 export LLM_NEWS_ANALYSIS_ENABLED=true
-export ANTHROPIC_API_KEY=your_anthropic_api_key
-export LLM_PROVIDER=anthropic
+export OPENAI_API_KEY=your_openai_api_key
 ```
 
 ### Optional Settings
 
 ```bash
-# Provider selection (auto-detected if not set)
-export LLM_PROVIDER=openai  # or 'anthropic', 'local'
+# Provider selection (only 'openai' is supported now)
+export LLM_PROVIDER=openai  # or 'local' for fallback
 
 # Model selection (auto-selects best if not set)
-export LLM_MODEL=gpt-4o-mini  # or 'claude-3-5-sonnet-20241022'
+export LLM_MODEL=gpt-4o-mini  # or 'gpt-4'
 ```
 
 ### In-Code Configuration
@@ -131,11 +122,11 @@ Edit `main.py`:
 # Enable/disable LLM news analysis
 LLM_NEWS_ANALYSIS_ENABLED = True  # Set to False to disable
 
-# Provider: 'openai', 'anthropic', or 'local'
+# Provider: 'openai' or 'local'
 LLM_PROVIDER = 'openai'
 
 # Model name (None = auto-select)
-LLM_MODEL = None  # or 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'
+LLM_MODEL = None  # or 'gpt-4o-mini', 'gpt-4'
 
 # Sentiment blending weight (0.0 = all basic, 1.0 = all LLM)
 LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
@@ -153,25 +144,20 @@ LLM_SENTIMENT_WEIGHT = 0.7  # 70% LLM, 30% basic
 
 ### Cost Estimates
 
-#### OpenAI GPT-4o-mini (Recommended)
+#### OpenAI GPT-4o-mini
 - **Cost**: $0.15 per 1M input tokens, $0.60 per 1M output tokens
 - **Per run**: ~$0.01
 - **Per day**: ~$0.24
 - **Per month**: ~$7.20
 
-#### Anthropic Claude 3.5 Sonnet
-- **Cost**: $3 per 1M input tokens, $15 per 1M output tokens
-- **Per run**: ~$0.04
-- **Per day**: ~$0.96
-- **Per month**: ~$28.80
-
 ### Cost Optimization
 
 1. **Limit articles**: Analyze only 5-10 most recent per symbol
-2. **Use cheaper models**: GPT-4o-mini is 10x cheaper than GPT-4
+2. **Use gpt-4o-mini**: Much cheaper than GPT-4
 3. **Batch less frequently**: Run every 2-4 hours instead of hourly
 4. **Filter by impact**: Only use LLM for high-priority news
 5. **Disable when not needed**: Turn off during low-volatility periods
+6. **News deduplication**: Automatic caching prevents re-analyzing the same articles
 
 ## ML Integration
 
@@ -273,7 +259,7 @@ INFO:llm_news_analyzer:Enhanced sentiment for EURUSD: 0.300 -> 0.450 (confidence
 **Cause**: Missing API key or library
 **Solution**: 
 ```bash
-pip install openai  # or anthropic
+pip install openai
 export OPENAI_API_KEY=your_key
 export LLM_NEWS_ANALYSIS_ENABLED=true
 ```
@@ -339,23 +325,23 @@ export LLM_NEWS_ANALYSIS_ENABLED=true
 Planned improvements:
 
 1. **Local LLM support**: Run Llama 3 or Mistral locally (free)
-2. **Caching**: Cache LLM results to avoid re-analyzing same news
-3. **Multi-article synthesis**: Analyze multiple articles together for context
-4. **Real-time events**: Priority processing for breaking news
-5. **Custom prompts**: User-configurable analysis prompts
-6. **Sentiment history**: Track LLM sentiment over time
-7. **Confidence calibration**: Tune confidence thresholds based on results
+2. **Multi-article synthesis**: Analyze multiple articles together for context
+3. **Real-time events**: Priority processing for breaking news
+4. **Custom prompts**: User-configurable analysis prompts
+5. **Sentiment history**: Track LLM sentiment over time
+6. **Confidence calibration**: Tune confidence thresholds based on results
+7. **Enhanced deduplication**: More sophisticated caching strategies
 
 ## FAQ
 
 **Q: Do I need LLM to use the bot?**
 A: No, it's completely optional. The bot works great without it.
 
-**Q: Which LLM provider is better?**
-A: OpenAI GPT-4o-mini is recommended for cost/quality balance. Claude is better for complex reasoning but costs more.
+**Q: Which LLM provider is supported?**
+A: Only OpenAI is supported. We recommend GPT-4o-mini for the best cost/quality balance.
 
 **Q: Can I use a local LLM?**
-A: Not yet, but it's planned. For now, use OpenAI or Anthropic.
+A: Not yet, but it's planned. For now, only OpenAI is supported.
 
 **Q: What if the LLM API fails?**
 A: The bot falls back to keyword-based analysis automatically.
@@ -371,6 +357,9 @@ A: Not yet, but you can edit `llm_news_analyzer.py` to modify the prompt.
 
 **Q: How do I know if LLM is helping?**
 A: Compare win rates before/after enabling LLM over 100+ trades.
+
+**Q: Does the bot re-analyze the same news articles?**
+A: No, the bot automatically caches analyzed articles and skips duplicates to save API costs.
 
 ## Conclusion
 
