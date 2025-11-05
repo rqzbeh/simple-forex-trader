@@ -113,6 +113,14 @@ FOREX_NEWS_SOURCES = [
     ('FX Empire', 'https://www.fxempire.com/news'),
     ('MyFXBook News', 'https://www.myfxbook.com/news'),
     ('FXCM Insights', 'https://www.fxcm.com/insights/'),
+    # Additional RSS feeds for enhanced news coverage
+    ('CNBC Business', 'https://www.cnbc.com/id/100003114/device/rss/rss.html'),
+    ('Financial Times Global Economy', 'https://www.ft.com/rss/home/us'),
+    ('The Wall Street Journal Markets', 'https://feeds.a.dj.com/rss/RSSMarketsMain.xml'),
+    ('MarketWatch Commodities', 'https://feeds.marketwatch.com/marketwatch/marketpulse/'),
+    ('Bloomberg Business', 'https://feeds.bloomberg.com/bloomberg/markets/rss.xml'),
+    ('Reuters Business News', 'https://feeds.reuters.com/reuters/businessNews'),
+    ('Forbes Finance', 'https://www.forbes.com/finance/feed/'),
 ]
 
 # Map simple tickers/names to yfinance symbols for forex and commodities
