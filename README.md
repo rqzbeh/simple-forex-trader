@@ -4,13 +4,14 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 
 ## Features
 
-- **LLM-Enhanced News Analysis** (MANDATORY): Uses Groq LLMs to deeply understand news and predict market impact
+- **LLM-Enhanced News Analysis** (MANDATORY): Uses Groq LLMs for all sentiment and market impact analysis
   - Analyzes how news affects people, markets, and specific instruments
   - Predicts market impact level (high/medium/low) and time horizon
   - Provides reasoning and market mechanisms for each analysis
   - Supports multiple Groq models (llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it, llama3-70b-8192)
   - Default model: llama-3.3-70b-versatile (GPT OSS 120B equivalent)
-  - Blends LLM insights with traditional sentiment analysis
+  - **No fallback** - LLM handles all sentiment analysis (TextBlob removed)
+  - **Rate limiting**: Built-in Groq free tier limit enforcement (1k requests/day, 500K tokens/day)
   - **Duplicate detection**: Automatically skips already-analyzed news articles
   - **Free tier available** with Groq
 - **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
@@ -22,7 +23,6 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Includes 27 news sources from reputable financial outlets
   - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
   - Web sources: Forex Factory, DailyFX, Investing.com, FXStreet, ForexLive, and others
-- **Sentiment Analysis**: Uses TextBlob to analyze news sentiment, with boosts for central bank and economic data sources
 - **Advanced Technical Analysis**: Incorporates 14 key indicators optimized for forex, commodities, and indices:
   - RSI (Relative Strength Index) - Momentum oscillator
   - MACD (Moving Average Convergence Divergence) - Trend following
@@ -102,6 +102,9 @@ Set the following environment variables:
 - `LLM_PROVIDER`: LLM provider (only `groq` is supported, default: groq)
 - `LLM_MODEL`: Specific model to use (default: `llama-3.3-70b-versatile`)
   - Available models: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `mixtral-8x7b-32768`, `gemma2-9b-it`, `llama3-70b-8192`
+- `GROQ_MAX_REQUESTS_PER_DAY`: Max API requests per day (default: 1000, set to 0 to disable)
+- `GROQ_MAX_TOKENS_PER_DAY`: Max tokens per day (default: 500000, set to 0 to disable)
+- `GROQ_ENFORCE_LIMITS`: Enforce rate limits (default: true, set to false to disable all limits)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
 - `BROKER_API_KEY`: Your forex broker API key (optional, for automated trading)
@@ -117,7 +120,9 @@ Edit the constants in `main.py` to customize:
 - `ML_RETRAIN_INTERVAL`: Hours between ML model retraining (default: 24)
 - `LLM_PROVIDER`: LLM provider (only 'groq' is supported)
 - `LLM_MODEL`: Specific model name (default: 'llama-3.3-70b-versatile')
-- `LLM_SENTIMENT_WEIGHT`: Weight for LLM sentiment vs basic (0.0-1.0, default: 0.7)
+- `GROQ_MAX_REQUESTS_PER_DAY`: Daily request limit (default: 1000)
+- `GROQ_MAX_TOKENS_PER_DAY`: Daily token limit (default: 500000)
+- `GROQ_ENFORCE_LIMITS`: Enable rate limiting (default: true)
 - `LOW_MONEY_MODE`: Set to `True` for smaller accounts (< $500)
 - `MAX_LEVERAGE_FOREX`: Maximum leverage for forex trades (default: 50)
 - `MAX_LEVERAGE_STOCK`: Maximum leverage for stock/indices trades (default: 5)
@@ -183,15 +188,18 @@ The bot **requires** Groq LLM for news analysis to provide deeper market insight
 - **Confidence Scoring**: Provides confidence levels for each prediction
 - **Reasoning**: Explains the analysis in human-readable terms
 - **Duplicate Detection**: Automatically skips news articles that have already been analyzed
+- **Rate Limiting**: Built-in protection against exceeding free tier limits
 
 ### How It Works
 
 1. Analyzes up to 10 most recent news articles per trading symbol
-2. Sends articles to Groq LLM with specialized financial analyst prompt
-3. Receives structured analysis (sentiment, impact, reasoning, etc.)
-4. Blends LLM sentiment with basic TextBlob sentiment (weighted average)
-5. Boosts expected returns for high-impact news
-6. Feeds LLM features into ML predictor for better trade filtering
+2. Checks rate limits before making API calls (respects free tier: 1k requests/day, 500K tokens/day)
+3. Sends articles to Groq LLM with specialized financial analyst prompt
+4. Receives structured analysis (sentiment, impact, reasoning, etc.)
+5. Uses LLM sentiment directly (no TextBlob fallback)
+6. Boosts expected returns for high-impact news
+7. Feeds LLM features into ML predictor for better trade filtering
+8. Tracks usage and warns when approaching limits
 
 ### Setup (REQUIRED)
 
@@ -206,13 +214,23 @@ Optional configuration:
 ```bash
 export LLM_MODEL=llama-3.3-70b-versatile  # Default, can use other models
 # Available: llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it, llama3-70b-8192
+
+# Rate limiting (defaults to Groq free tier)
+export GROQ_MAX_REQUESTS_PER_DAY=1000
+export GROQ_MAX_TOKENS_PER_DAY=500000
+export GROQ_ENFORCE_LIMITS=true  # Set to false to disable (may exceed free tier)
 ```
 
-### Cost
+### Free Tier & Rate Limits
 
-- **Free tier available** with Groq (generous rate limits)
-- Typical usage: ~10 articles × 10 symbols = 100 API calls per run
-- News deduplication helps reduce API costs by skipping already-analyzed articles
+- **Free tier**: 1,000 requests/day, 500,000 tokens/day
+- **Automatic tracking**: Bot tracks usage and prevents exceeding limits
+- **Smart optimization**: 
+  - Duplicate detection reduces redundant API calls
+  - Caching prevents re-analyzing same articles
+  - Running hourly (24 times/day) stays well within limits
+- **Manual override**: Set `GROQ_ENFORCE_LIMITS=false` to disable (use with caution)
+- **Usage stats**: Displayed in bot output and logged to `groq_usage.json`
 
 ## Files
 
