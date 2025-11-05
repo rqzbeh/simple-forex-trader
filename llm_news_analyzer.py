@@ -97,8 +97,8 @@ class LLMNewsAnalyzer:
         """Generate unique hash for article to detect duplicates - using SHA-256 for better collision resistance"""
         title = article.get('title', '')
         description = article.get('description', '')
-        # Create hash from title + description
-        content = f"{title}|{description}"
+        # Use JSON for robust serialization to avoid separator collision issues
+        content = json.dumps({'title': title, 'description': description}, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()
     
     def _is_already_analyzed(self, article: Dict[str, str]) -> bool:
@@ -110,14 +110,19 @@ class LLMNewsAnalyzer:
         """Mark article as analyzed"""
         article_hash = self._get_article_hash(article)
         
-        # If cache is full, remove oldest item from set
+        # If cache is full, retrieve the oldest hash before it gets evicted
+        oldest_hash = None
         if len(self.analyzed_news_cache) == self.analyzed_news_cache.maxlen:
-            oldest_hash = self.analyzed_news_cache[0]
-            self.analyzed_news_set.discard(oldest_hash)
+            oldest_hash = self.analyzed_news_cache[0]  # Get oldest before appending
         
-        # Add to both deque and set
+        # Add to deque (will auto-evict oldest if full)
         self.analyzed_news_cache.append(article_hash)
+        
+        # Update set: remove oldest if it was evicted, add new
+        if oldest_hash is not None:
+            self.analyzed_news_set.discard(oldest_hash)
         self.analyzed_news_set.add(article_hash)
+        
         self._save_cache()
     
     def _init_openai(self):
