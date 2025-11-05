@@ -57,6 +57,14 @@ except ImportError as e:
     print("Install with: pip install groq")
     exit(1)
 
+# Import market psychology analyzer
+try:
+    from market_psychology_analyzer import analyze_market_psychology
+    PSYCHOLOGY_ANALYZER_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: Market psychology analyzer not available: {e}")
+    PSYCHOLOGY_ANALYZER_AVAILABLE = False
+
 # Suppress yfinance warnings and errors for cleaner output
 logging.getLogger('yfinance').setLevel(logging.ERROR)
 logging.getLogger('urllib3').setLevel(logging.WARNING)
@@ -424,6 +432,10 @@ ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 # LLM analysis is now mandatory and always enabled
 LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'groq')  # Only 'groq' is supported
 LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile if None
+
+# Market Psychology Analysis (uses Groq to detect fear, greed, irrationality)
+PSYCHOLOGY_ANALYSIS_ENABLED = os.getenv('PSYCHOLOGY_ANALYSIS_ENABLED', 'true').lower() == 'true'
+PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_THRESHOLD', '0.6'))  # Adjust trades when irrationality > this
 
 # Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
 # Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
@@ -2198,6 +2210,33 @@ async def main(backtest_only=False):
         # Use LLM-enhanced sentiment if available
         avg_sent, llm_confidence, llm_analysis = analyze_sentiment_with_llm(articles_for_symbol, sym)
         
+        # Analyze market psychology (fear, greed, irrationality)
+        psychology = None
+        if PSYCHOLOGY_ANALYSIS_ENABLED and PSYCHOLOGY_ANALYZER_AVAILABLE and articles_for_symbol:
+            try:
+                # Get basic technical signals for context
+                market_preview = await get_market_data_async(info['yf'], kind=info['kind'])
+                if market_preview:
+                    tech_signals = {
+                        'rsi': market_preview.get('rsi_signal', 0),
+                        'macd': market_preview.get('macd_signal', 0),
+                        'trend': market_preview.get('trend_signal', 0)
+                    }
+                    psychology = analyze_market_psychology(
+                        articles_for_symbol, 
+                        sym, 
+                        tech_signals,
+                        market_preview.get('volatility_hourly')
+                    )
+                    
+                    if sym in DEBUG_SYMBOLS and psychology:
+                        print(f"PSYCHOLOGY {sym}: {psychology['dominant_emotion']} "
+                              f"(fear/greed: {psychology['fear_greed_index']:.2f}, "
+                              f"irrationality: {psychology['irrationality_score']:.2f}) "
+                              f"-> {psychology['trading_recommendation']}")
+            except Exception as e:
+                print(f"Psychology analysis error for {sym}: {e}")
+        
         # Check news impact and get trading guidance
         news_impact = None
         if NEWS_IMPACT_ENABLED and articles_for_symbol:
@@ -2233,6 +2272,54 @@ async def main(backtest_only=False):
         plan = calculate_trade_plan(avg_sent, news_count, market, kind=kind, news_impact=news_impact)
         if not plan:
             return None
+        
+        # Apply psychology adjustments to trade plan
+        if psychology and psychology['irrationality_score'] > PSYCHOLOGY_IRRATIONALITY_THRESHOLD:
+            # Market is irrational - adjust strategy
+            if psychology['trading_recommendation'] == 'contrarian':
+                # Extreme fear/greed - consider contrarian
+                if psychology['fear_greed_index'] < -0.6:  # Extreme fear
+                    # Fear creates buying opportunities if fundamentals are ok
+                    if plan['direction'] == 'long' and avg_sent > -0.3:
+                        plan['expected_return_pct'] *= 1.25  # Boost contrarian long
+                        if sym in DEBUG_SYMBOLS:
+                            print(f"PSYCHOLOGY BOOST {sym}: Contrarian long in extreme fear")
+                    elif plan['direction'] == 'short':
+                        plan['expected_return_pct'] *= 0.7  # Reduce shorting in fear
+                
+                elif psychology['fear_greed_index'] > 0.6:  # Extreme greed
+                    # Greed creates selling opportunities
+                    if plan['direction'] == 'short' and avg_sent < 0.3:
+                        plan['expected_return_pct'] *= 1.25  # Boost contrarian short
+                        if sym in DEBUG_SYMBOLS:
+                            print(f"PSYCHOLOGY BOOST {sym}: Contrarian short in extreme greed")
+                    elif plan['direction'] == 'long':
+                        plan['expected_return_pct'] *= 0.7  # Reduce buying in greed
+                        
+            elif psychology['trading_recommendation'] == 'stay_neutral':
+                # High uncertainty or confusion - reduce position size
+                plan['recommended_leverage'] *= 0.7
+                plan['stop_pct'] *= 1.2  # Wider stops for uncertainty
+                if sym in DEBUG_SYMBOLS:
+                    print(f"PSYCHOLOGY CAUTION {sym}: Uncertainty detected, reducing leverage")
+            
+            # Adjust for panic (extreme irrational fear)
+            if psychology['dominant_emotion'] == 'panic' and psychology['irrationality_score'] > 0.7:
+                if plan['direction'] == 'long':
+                    plan['stop_pct'] *= 1.3  # Wider stops in panic
+                    if sym in DEBUG_SYMBOLS:
+                        print(f"PSYCHOLOGY ADJUST {sym}: Panic detected, wider stops for longs")
+                elif plan['direction'] == 'short':
+                    plan['expected_return_pct'] *= 0.8  # Reduce shorting in panic (may reverse fast)
+            
+            # Adjust for euphoria (extreme irrational greed)
+            if psychology['dominant_emotion'] == 'euphoria' and psychology['irrationality_score'] > 0.7:
+                if plan['direction'] == 'short':
+                    plan['stop_pct'] *= 1.3  # Wider stops in euphoria
+                    if sym in DEBUG_SYMBOLS:
+                        print(f"PSYCHOLOGY ADJUST {sym}: Euphoria detected, wider stops for shorts")
+                elif plan['direction'] == 'long':
+                    plan['expected_return_pct'] *= 0.8  # Reduce buying in euphoria
 
         # Debug for first few
         if sym in DEBUG_SYMBOLS:
@@ -2341,6 +2428,7 @@ async def main(backtest_only=False):
             'sar_signal': market.get('sar_signal', 0),
             'ml_probability': ml_probability,
             'ml_confidence': ml_confidence,
+            'psychology': psychology if psychology else None,
             **plan
         }
     
@@ -2417,7 +2505,11 @@ async def main(backtest_only=False):
             stop_price = price
             target_price = price
         ml_info = f" | ML: {r.get('ml_probability', 0.5):.2%} prob, {r.get('ml_confidence', 0):.2%} conf" if ML_ENABLED and ML_AVAILABLE else ""
-        trade_line = f"Symbol: {r['symbol']} | Direction: {r['direction'].upper()} | Entry Price: {r['price']:.4f} | Stop Loss: {stop_price:.4f} | Take Profit: {target_price:.4f} | Leverage: {r['recommended_leverage']}{ml_info}"
+        psychology_info = ""
+        if r.get('psychology') and r['psychology']['irrationality_score'] > 0.4:
+            psych = r['psychology']
+            psychology_info = f" | Psychology: {psych['dominant_emotion']} (fear/greed: {psych['fear_greed_index']:+.2f}, irrational: {psych['irrationality_score']:.2f})"
+        trade_line = f"Symbol: {r['symbol']} | Direction: {r['direction'].upper()} | Entry Price: {r['price']:.4f} | Stop Loss: {stop_price:.4f} | Take Profit: {target_price:.4f} | Leverage: {r['recommended_leverage']}{ml_info}{psychology_info}"
         message += trade_line + "\n"
         print(trade_line)
 

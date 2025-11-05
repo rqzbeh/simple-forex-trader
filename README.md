@@ -14,6 +14,14 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - **Rate limiting**: Built-in Groq free tier limit enforcement (1k requests/day, 500K tokens/day)
   - **Duplicate detection**: Automatically skips already-analyzed news articles
   - **Free tier available** with Groq
+- **Market Psychology Analysis** (NEW): AI-powered detection of fear, greed, and irrational behavior
+  - Analyzes market sentiment beyond fundamentals (fear, greed, panic, euphoria, uncertainty)
+  - Detects irrational market behavior caused by human emotions
+  - Fear/Greed Index: -1.0 (extreme fear) to +1.0 (extreme greed)
+  - Irrationality Score: 0.0 (rational) to 1.0 (highly irrational)
+  - Trading recommendations: contrarian opportunities, follow momentum, or stay neutral
+  - Adjusts trade strategy when markets are driven by emotion rather than fundamentals
+  - Helps identify when technical analysis may be unreliable due to panic/euphoria
 - **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
   - Automatically trains on historical trade data
   - Filters trades based on ML confidence and probability scores
@@ -105,6 +113,8 @@ Set the following environment variables:
 - `GROQ_MAX_REQUESTS_PER_DAY`: Max API requests per day (default: 1000, set to 0 to disable)
 - `GROQ_MAX_TOKENS_PER_DAY`: Max tokens per day (default: 500000, set to 0 to disable)
 - `GROQ_ENFORCE_LIMITS`: Enforce rate limits (default: true, set to false to disable all limits)
+- `PSYCHOLOGY_ANALYSIS_ENABLED`: Enable market psychology analysis (default: true)
+- `PSYCHOLOGY_IRRATIONALITY_THRESHOLD`: Threshold for applying psychology adjustments (default: 0.6)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
 - `BROKER_API_KEY`: Your forex broker API key (optional, for automated trading)
@@ -123,6 +133,8 @@ Edit the constants in `main.py` to customize:
 - `GROQ_MAX_REQUESTS_PER_DAY`: Daily request limit (default: 1000)
 - `GROQ_MAX_TOKENS_PER_DAY`: Daily token limit (default: 500000)
 - `GROQ_ENFORCE_LIMITS`: Enable rate limiting (default: true)
+- `PSYCHOLOGY_ANALYSIS_ENABLED`: Enable market psychology analysis (default: true)
+- `PSYCHOLOGY_IRRATIONALITY_THRESHOLD`: Irrationality threshold for trade adjustments (default: 0.6)
 - `LOW_MONEY_MODE`: Set to `True` for smaller accounts (< $500)
 - `MAX_LEVERAGE_FOREX`: Maximum leverage for forex trades (default: 50)
 - `MAX_LEVERAGE_STOCK`: Maximum leverage for stock/indices trades (default: 5)
