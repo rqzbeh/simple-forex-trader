@@ -45,6 +45,13 @@ except ImportError:
     ML_AVAILABLE = False
     print("Warning: ML predictor not available. Install scikit-learn for ML features.")
 
+try:
+    from llm_news_analyzer import enhance_sentiment_with_llm, get_llm_analyzer
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+    print("Warning: LLM news analyzer not available.")
+
 # Silence yfinance verbosity
 logging.getLogger("yfinance").setLevel(logging.ERROR)
 
@@ -72,6 +79,9 @@ print(f"FMP_API_KEY: {'Set' if FMP_API_KEY else 'Not set'}")
 print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
 print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
 print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
+print(f"OPENAI_API_KEY: {'Set' if os.getenv('OPENAI_API_KEY') else 'Not set'}")
+print(f"ANTHROPIC_API_KEY: {'Set' if os.getenv('ANTHROPIC_API_KEY') else 'Not set'}")
+print(f"LLM_NEWS_ANALYSIS: {'Enabled' if os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true' else 'Disabled'}")
 
 # Initialize clients lazily when keys are present
 _polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY else None
@@ -399,6 +409,12 @@ ML_MIN_CONFIDENCE = 0.60  # Minimum confidence for ML predictions
 ML_MIN_PROBABILITY = 0.55  # Minimum win probability from ML
 ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 
+# LLM Configuration for Enhanced News Analysis
+LLM_NEWS_ANALYSIS_ENABLED = os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true'
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'openai')  # 'openai', 'anthropic', or 'local'
+LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects best model if None
+LLM_SENTIMENT_WEIGHT = 0.7  # Weight for LLM sentiment vs basic sentiment (0.0-1.0)
+
 # Backtesting configuration
 BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
 BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
@@ -568,6 +584,41 @@ def analyze_sentiment(texts):
         return 0.0
     # weighted by recency could be added; simple average for now
     return sum(scores) / len(scores)
+
+def analyze_sentiment_with_llm(articles, symbol=''):
+    '''
+    Enhanced sentiment analysis combining TextBlob with LLM insights.
+    
+    Args:
+        articles: List of article dicts with 'title', 'description', 'source'
+        symbol: Trading symbol for context-aware analysis
+    
+    Returns:
+        Tuple of (sentiment_score, llm_confidence, llm_analysis)
+    '''
+    # Get basic sentiment from TextBlob
+    texts = []
+    for a in articles:
+        title = a.get('title', '')
+        desc = a.get('description', '')
+        text = f'{title} {desc}'.strip()
+        if text:
+            texts.append(text)
+    
+    basic_sentiment = analyze_sentiment(articles)
+    
+    # Enhance with LLM if enabled
+    if LLM_NEWS_ANALYSIS_ENABLED and LLM_AVAILABLE:
+        try:
+            enhanced_sentiment, llm_confidence, llm_analysis = enhance_sentiment_with_llm(
+                articles, symbol, basic_sentiment
+            )
+            return enhanced_sentiment, llm_confidence, llm_analysis
+        except Exception as e:
+            print(f"LLM sentiment enhancement error: {e}")
+            return basic_sentiment, 0.0, {}
+    else:
+        return basic_sentiment, 0.0, {}
 
 @lru_cache(maxsize=100)
 def _get_yfinance_data(yf_symbol, kind='forex'):
@@ -2123,8 +2174,9 @@ def main(backtest_only=False):
         for h in hits:
             key = h['symbol']
             if key not in symbol_articles:
-                symbol_articles[key] = {'yf': h['yf'], 'kind': h['kind'], 'texts': [], 'count': 0}
+                symbol_articles[key] = {'yf': h['yf'], 'kind': h['kind'], 'texts': [], 'articles': [], 'count': 0}
             symbol_articles[key]['texts'].append(text)
+            symbol_articles[key]['articles'].append(a)  # Store full article for LLM
             symbol_articles[key]['count'] += 1
 
     print(f'Retrieved {len(articles)} articles for analysis. Analyzing {len(symbol_articles)} symbols (defaults + news mentions).')
@@ -2133,7 +2185,11 @@ def main(backtest_only=False):
     print('Analyzing candidates...')
     for sym, info in symbol_articles.items():
         texts = info['texts']
-        avg_sent = analyze_sentiment(texts)
+        articles_for_symbol = info.get('articles', [])
+        
+        # Use LLM-enhanced sentiment if available
+        avg_sent, llm_confidence, llm_analysis = analyze_sentiment_with_llm(articles_for_symbol, sym)
+        
         news_count = info['count']
         yf_symbol = info['yf']
         kind = info['kind']
@@ -2229,6 +2285,8 @@ def main(backtest_only=False):
             'yf_symbol': yf_symbol,
             'kind': kind,
             'avg_sentiment': avg_sent,
+            'llm_confidence': llm_confidence,
+            'llm_analysis': llm_analysis,
             'news_count': news_count,
             'price': market['price'],
             'volatility_hourly': market['volatility_hourly'],

@@ -36,7 +36,7 @@ class MLTradingPredictor:
             'vwap_signal', 'stoch_signal', 'cci_signal', 'hurst_signal',
             'adx_signal', 'williams_r_signal', 'sar_signal', 'volatility',
             'atr_pct', 'distance_to_support', 'distance_to_resistance',
-            'distance_to_pivot'
+            'distance_to_pivot', 'llm_confidence', 'llm_market_impact'
         ]
         self.min_training_samples = 50
         self.load_model()
@@ -101,6 +101,15 @@ class MLTradingPredictor:
         features.append((price - support) / price if price > 0 else 0)
         features.append((resistance - price) / price if price > 0 else 0)
         features.append((price - pivot) / price if price > 0 else 0)
+        
+        # LLM features (if available)
+        features.append(trade_data.get('llm_confidence', 0.0))
+        
+        # Convert market impact to numerical: high=1.0, medium=0.5, low=0.0
+        llm_analysis = trade_data.get('llm_analysis', {})
+        market_impact = llm_analysis.get('market_impact', 'low') if llm_analysis else 'low'
+        impact_value = {'high': 1.0, 'medium': 0.5, 'low': 0.0}.get(market_impact, 0.0)
+        features.append(impact_value)
         
         return np.array(features).reshape(1, -1)
     
