@@ -389,7 +389,7 @@ TRADE_LOG_FILE = 'trade_log.json'
 # Backtesting configuration
 BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
 BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
-BACKTEST_ADJUST_THRESHOLD = 0.66  # Stricter win rate threshold (66%) for adjustments
+BACKTEST_ADJUST_THRESHOLD = 0.55  # Stricter win rate threshold (55%) for adjustments
 BACKTEST_TEST_MODE = False  # Use fake data for testing (set to False for real backtesting)
 
 # Indicator weights (adaptive learning)
