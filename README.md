@@ -4,13 +4,15 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 
 ## Features
 
-- **LLM-Enhanced News Analysis** (NEW!): Uses Large Language Models to deeply understand news and predict market impact
+- **LLM-Enhanced News Analysis** (MANDATORY): Uses Groq LLMs to deeply understand news and predict market impact
   - Analyzes how news affects people, markets, and specific instruments
   - Predicts market impact level (high/medium/low) and time horizon
   - Provides reasoning and market mechanisms for each analysis
-  - Supports Groq LLM models (llama-3.1-70b-versatile, mixtral-8x7b-32768)
+  - Supports multiple Groq models (llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it, llama3-70b-8192)
+  - Default model: llama-3.3-70b-versatile (GPT OSS 120B equivalent)
   - Blends LLM insights with traditional sentiment analysis
   - **Duplicate detection**: Automatically skips already-analyzed news articles
+  - **Free tier available** with Groq
 - **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
   - Automatically trains on historical trade data
   - Filters trades based on ML confidence and probability scores
@@ -49,9 +51,9 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 
 - Python 3.8 or higher
 - NewsAPI account (free tier available)
+- **Groq API key** (REQUIRED for LLM-enhanced news analysis - free tier available)
 - Broker API access (e.g., Oanda, MetaTrader) for automated trading
 - Internet connection for data fetching
-- (Optional) Groq API key for LLM-enhanced news analysis
 
 ## Dependencies
 
@@ -96,10 +98,10 @@ Set the following environment variables:
 - `QUANDL_API_KEY`: Your Quandl/Nasdaq Data Link API key (optional, for economic data)
 - `FRED_API_KEY`: Your FRED API key (optional, for macroeconomic data)
 - `IEX_API_TOKEN`: Your IEX Cloud API token (optional, for stock data)
-- `GROQ_API_KEY`: Your Groq API key (required for LLM-enhanced news analysis)
-- `LLM_NEWS_ANALYSIS_ENABLED`: Set to `true` to enable LLM news analysis (default: false)
-- `LLM_PROVIDER`: LLM provider (only `groq` is supported)
-- `LLM_MODEL`: Specific model to use (e.g., `llama-3.1-70b-versatile`, `mixtral-8x7b-32768`)
+- `GROQ_API_KEY`: Your Groq API key (REQUIRED - get free tier at console.groq.com)
+- `LLM_PROVIDER`: LLM provider (only `groq` is supported, default: groq)
+- `LLM_MODEL`: Specific model to use (default: `llama-3.3-70b-versatile`)
+  - Available models: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `mixtral-8x7b-32768`, `gemma2-9b-it`, `llama3-70b-8192`
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
 - `BROKER_API_KEY`: Your forex broker API key (optional, for automated trading)
@@ -113,9 +115,8 @@ Edit the constants in `main.py` to customize:
 - `ML_MIN_CONFIDENCE`: Minimum ML confidence threshold (default: 0.60)
 - `ML_MIN_PROBABILITY`: Minimum win probability from ML (default: 0.55)
 - `ML_RETRAIN_INTERVAL`: Hours between ML model retraining (default: 24)
-- `LLM_NEWS_ANALYSIS_ENABLED`: Enable/disable LLM-enhanced news analysis (default: False)
 - `LLM_PROVIDER`: LLM provider (only 'groq' is supported)
-- `LLM_MODEL`: Specific model name (auto-selects if None)
+- `LLM_MODEL`: Specific model name (default: 'llama-3.3-70b-versatile')
 - `LLM_SENTIMENT_WEIGHT`: Weight for LLM sentiment vs basic (0.0-1.0, default: 0.7)
 - `LOW_MONEY_MODE`: Set to `True` for smaller accounts (< $500)
 - `MAX_LEVERAGE_FOREX`: Maximum leverage for forex trades (default: 50)
@@ -171,7 +172,7 @@ The ML model uses ensemble methods (Random Forest + Gradient Boosting) with 23 f
 
 ## LLM-Enhanced News Analysis
 
-The bot includes an **optional** LLM-powered news analyzer that provides deeper market insights:
+The bot **requires** Groq LLM for news analysis to provide deeper market insights:
 
 ### What It Does
 
@@ -186,42 +187,32 @@ The bot includes an **optional** LLM-powered news analyzer that provides deeper 
 ### How It Works
 
 1. Analyzes up to 10 most recent news articles per trading symbol
-2. Sends articles to LLM with specialized financial analyst prompt
+2. Sends articles to Groq LLM with specialized financial analyst prompt
 3. Receives structured analysis (sentiment, impact, reasoning, etc.)
 4. Blends LLM sentiment with basic TextBlob sentiment (weighted average)
 5. Boosts expected returns for high-impact news
 6. Feeds LLM features into ML predictor for better trade filtering
 
-### Enabling LLM Analysis
+### Setup (REQUIRED)
 
-Set these environment variables:
+Get a free Groq API key at [console.groq.com](https://console.groq.com) and set:
 
 ```bash
-export LLM_NEWS_ANALYSIS_ENABLED=true
 export GROQ_API_KEY=your_groq_api_key
 ```
 
 Optional configuration:
 
 ```bash
-export LLM_PROVIDER=groq  # Only 'groq' is supported
-export LLM_MODEL=llama-3.1-70b-versatile  # or 'mixtral-8x7b-32768'
+export LLM_MODEL=llama-3.3-70b-versatile  # Default, can use other models
+# Available: llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it, llama3-70b-8192
 ```
 
-### Cost Considerations
+### Cost
 
-- **Disabled by default** - zero cost unless explicitly enabled
-- Groq offers free tier with rate limits
+- **Free tier available** with Groq (generous rate limits)
 - Typical usage: ~10 articles × 10 symbols = 100 API calls per run
 - News deduplication helps reduce API costs by skipping already-analyzed articles
-
-### Fallback Behavior
-
-If LLM is disabled or API fails:
-- Falls back to keyword-based sentiment analysis
-- Still provides market impact estimates (simple rules)
-- Trading continues normally without interruption
-- Zero degradation in basic functionality
 
 ## Files
 

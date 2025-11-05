@@ -48,12 +48,14 @@ except ImportError:
     ML_AVAILABLE = False
     print("Warning: ML predictor not available. Install scikit-learn for ML features.")
 
+# LLM is now mandatory - import or fail
 try:
     from llm_news_analyzer import enhance_sentiment_with_llm, get_llm_analyzer
     LLM_AVAILABLE = True
-except ImportError:
-    LLM_AVAILABLE = False
-    print("Warning: LLM news analyzer not available.")
+except ImportError as e:
+    print(f"ERROR: LLM news analyzer is required but not available: {e}")
+    print("Install with: pip install groq")
+    exit(1)
 
 # Suppress yfinance warnings and errors for cleaner output
 logging.getLogger('yfinance').setLevel(logging.ERROR)
@@ -87,8 +89,7 @@ print(f"FMP_API_KEY: {'Set' if FMP_API_KEY else 'Not set'}")
 print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
 print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
 print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
-print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set'}")
-print(f"LLM_NEWS_ANALYSIS: {'Enabled' if os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true' else 'Disabled'}")
+print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set (REQUIRED)'}")
 
 # Initialize clients lazily when keys are present
 _polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY else None
@@ -417,10 +418,10 @@ ML_MIN_CONFIDENCE = 0.60  # Minimum confidence for ML predictions
 ML_MIN_PROBABILITY = 0.55  # Minimum win probability from ML
 ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 
-# LLM Configuration for Enhanced News Analysis (Groq only)
-LLM_NEWS_ANALYSIS_ENABLED = os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true'
+# LLM Configuration for News Analysis (Groq - MANDATORY)
+# LLM analysis is now mandatory and always enabled
 LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'groq')  # Only 'groq' is supported
-LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects best model if None
+LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile if None
 LLM_SENTIMENT_WEIGHT = 0.7  # Weight for LLM sentiment vs basic sentiment (0.0-1.0)
 
 # Backtesting configuration
@@ -619,17 +620,15 @@ def analyze_sentiment_with_llm(articles, symbol=''):
     
     basic_sentiment = analyze_sentiment(articles)
     
-    # Enhance with LLM if enabled
-    if LLM_NEWS_ANALYSIS_ENABLED and LLM_AVAILABLE:
-        try:
-            enhanced_sentiment, llm_confidence, llm_analysis = enhance_sentiment_with_llm(
-                articles, symbol, basic_sentiment
-            )
-            return enhanced_sentiment, llm_confidence, llm_analysis
-        except Exception as e:
-            print(f"LLM sentiment enhancement error: {e}")
-            return basic_sentiment, 0.0, {}
-    else:
+    # LLM is now mandatory - always enhance sentiment
+    try:
+        enhanced_sentiment, llm_confidence, llm_analysis = enhance_sentiment_with_llm(
+            articles, symbol, basic_sentiment
+        )
+        return enhanced_sentiment, llm_confidence, llm_analysis
+    except Exception as e:
+        print(f"LLM sentiment enhancement error: {e}")
+        # Return basic sentiment as fallback but log the error
         return basic_sentiment, 0.0, {}
 
 @lru_cache(maxsize=100)

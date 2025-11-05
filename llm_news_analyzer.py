@@ -36,7 +36,8 @@ class LLMNewsAnalyzer:
         
         Args:
             provider: Only 'groq' is supported.
-            model: Model name (e.g., 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768')
+            model: Model name (e.g., 'llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 
+                   'mixtral-8x7b-32768', 'gemma2-9b-it', 'llama3-70b-8192')
         """
         self.provider = provider.lower()
         self.model = model
@@ -129,15 +130,16 @@ class LLMNewsAnalyzer:
         """Initialize Groq client"""
         if not GROQ_AVAILABLE:
             logger.error("Groq not available. Install with: pip install groq")
-            return
+            raise ImportError("Groq library is required. Install with: pip install groq")
         
         api_key = os.getenv('GROQ_API_KEY')
         if not api_key:
-            logger.warning("GROQ_API_KEY not set. LLM analysis will be disabled.")
-            return
+            logger.error("GROQ_API_KEY not set. LLM analysis requires Groq API key.")
+            raise ValueError("GROQ_API_KEY environment variable must be set")
         
         self.client = Groq(api_key=api_key)
-        self.model = self.model or 'llama-3.1-70b-versatile'  # Default to versatile model
+        # Default to llama-3.3-70b-versatile (GPT OSS 120B equivalent)
+        self.model = self.model or 'llama-3.3-70b-versatile'
         logger.info(f"Initialized Groq with model: {self.model}")
     
     def analyze_news_article(self, article: Dict[str, str], symbol: str = '') -> Dict:
@@ -171,21 +173,6 @@ class LLMNewsAnalyzer:
                 'people_impact': 'Already processed',
                 'market_mechanism': 'Duplicate detection',
                 'was_cached': True
-            }
-        
-        if not self.client:
-            # No client available - cannot analyze
-            logger.error("No LLM client available. GROQ_API_KEY must be set.")
-            return {
-                'sentiment_score': 0.0,
-                'market_impact': 'low',
-                'affected_instruments': [],
-                'time_horizon': 'short_term',
-                'confidence': 0.0,
-                'reasoning': 'LLM client not available - GROQ_API_KEY not set',
-                'people_impact': 'Cannot analyze',
-                'market_mechanism': 'No LLM available',
-                'was_cached': False
             }
         
         try:
@@ -432,10 +419,8 @@ def enhance_sentiment_with_llm(articles: List[Dict], symbol: str, basic_sentimen
     Returns:
         Tuple of (enhanced_sentiment, confidence, llm_analysis)
     """
-    # Check if LLM is enabled
-    llm_enabled = os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true'
-    
-    if not llm_enabled or not articles:
+    # LLM is now mandatory - no optional flag
+    if not articles:
         return basic_sentiment, 0.0, {}
     
     try:
