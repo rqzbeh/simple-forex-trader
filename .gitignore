@@ -69,6 +69,10 @@ ml_scaler.pkl
 ml_last_train.json
 trade_log.json
 daily_risk.json
+news_impact_model.pkl
+news_impact_vectorizer.pkl
+news_impact_scaler.pkl
+news_impact_last_train.json
 
 # Test/demo files
 test_*.pkl

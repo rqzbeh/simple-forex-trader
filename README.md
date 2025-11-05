@@ -4,11 +4,19 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
 
 ## Features
 
+- **AI-Powered News Impact Prediction** ⭐ NEW!
+  - Analyzes current news **before** placing trades using ML and NLP
+  - Predicts how news will affect market volatility right now
+  - Can automatically halt trading during high-impact news events (central bank decisions, crises, major economic data)
+  - Uses TF-IDF text analysis with ensemble ML models (Random Forest & Gradient Boosting)
+  - Learns from historical news patterns and trade outcomes
+  - Provides impact level (high/medium/low), impact score (-1 to +1), and confidence
+  - Complements post-trade failure detection for comprehensive news intelligence
 - **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
   - Automatically trains on historical trade data
   - Filters trades based on ML confidence and probability scores
   - Periodic retraining every 24 hours for continuous improvement
-  - **NEW: News-Driven vs Logic-Driven Failure Detection** - Distinguishes between trade failures caused by unexpected news events vs incorrect technical analysis
+  - **News-Driven vs Logic-Driven Failure Detection** - Distinguishes between trade failures caused by unexpected news events vs incorrect technical analysis
     - Prevents ML from incorrectly learning to avoid good setups hit by unpredictable news
     - Fairly evaluates indicator performance by excluding news-driven failures
     - Provides clearer insights into true strategy effectiveness
@@ -157,17 +165,24 @@ The ML model uses ensemble methods (Random Forest + Gradient Boosting) with 21 f
 
 ## Files
 
-- `main.py`: Main bot script
-- `ml_predictor.py`: Machine learning prediction module
+- `main.py`: Main bot script with integrated AI news analysis
+- `ml_predictor.py`: Machine learning prediction module for trade outcomes
+- `news_impact_predictor.py`: AI-powered news impact prediction module ⭐ NEW!
 - `trade_log.json`: Log of recommended trades (created automatically)
 - `ml_model.pkl`: Trained ML model (created after first training)
 - `ml_scaler.pkl`: Feature scaler for ML (created after first training)
 - `ml_last_train.json`: Timestamp of last ML training
+- `news_impact_model.pkl`: Trained news impact ML model (auto-generated)
+- `news_impact_vectorizer.pkl`: TF-IDF vectorizer for news (auto-generated)
+- `news_impact_scaler.pkl`: Feature scaler for news ML (auto-generated)
+- `news_impact_last_train.json`: Timestamp of last news ML training (auto-generated)
 - `daily_risk.json`: Daily risk tracking
 - `README.md`: This file
 - `ML_EXPLANATION.md`: Detailed ML technical explanation
 - `NEWS_DETECTION_EXPLANATION.md`: Explanation of news-driven vs logic-driven failure detection
+- `AI_NEWS_IMPACT_GUIDE.md`: Guide to AI-powered news impact prediction ⭐ NEW!
 - `test_detection_simple.py`: Test script demonstrating failure detection
+- `test_news_impact.py`: Test script demonstrating AI news impact prediction ⭐ NEW!
 
 ## Risk Disclaimer
 

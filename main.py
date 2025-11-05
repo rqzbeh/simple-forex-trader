@@ -45,6 +45,13 @@ except ImportError:
     ML_AVAILABLE = False
     print("Warning: ML predictor not available. Install scikit-learn for ML features.")
 
+try:
+    from news_impact_predictor import get_news_impact_predictor
+    NEWS_IMPACT_ML_AVAILABLE = True
+except ImportError:
+    NEWS_IMPACT_ML_AVAILABLE = False
+    print("Warning: News impact predictor not available.")
+
 # Silence yfinance verbosity
 logging.getLogger("yfinance").setLevel(logging.ERROR)
 
@@ -2248,6 +2255,34 @@ def main(backtest_only=False):
     
     print('Forex, Commodities & Indices News Trading Bot v2.0 - Fetching latest signals (1h timeframe)...')
     articles = get_news()
+    
+    # AI-Powered News Impact Analysis
+    news_impact_result = None
+    if NEWS_IMPACT_ML_AVAILABLE:
+        try:
+            news_predictor = get_news_impact_predictor()
+            news_impact_result = news_predictor.predict_news_impact(articles)
+            
+            print(f"\n{'='*70}")
+            print("AI NEWS IMPACT ANALYSIS")
+            print(f"{'='*70}")
+            print(f"Impact Level: {news_impact_result['impact_level'].upper()}")
+            print(f"Impact Score: {news_impact_result['impact_score']:.2f} (-1=bearish, +1=bullish)")
+            print(f"Confidence: {news_impact_result['confidence']:.2%}")
+            print(f"ML Prediction: {news_impact_result['ml_prediction']:.2%} (prob of news-driven failure)")
+            print(f"Recommendation: {'TRADE' if news_impact_result['should_trade'] else 'AVOID TRADING'}")
+            print(f"Reason: {news_impact_result['reason']}")
+            print(f"{'='*70}\n")
+            
+            # If news impact suggests avoiding trading, stop here
+            if not news_impact_result['should_trade']:
+                print("⚠️  AI News Analysis suggests AVOIDING trading due to high news impact.")
+                print("The current news environment indicates high volatility risk.")
+                return []
+                
+        except Exception as e:
+            print(f"News impact prediction error: {e}")
+            news_impact_result = None
 
     # Initialize with default symbols (news optional)
     symbol_articles = {}
@@ -2437,6 +2472,33 @@ def main(backtest_only=False):
                     print("ML model training skipped (insufficient data)")
         except Exception as e:
             print(f"ML training error: {e}")
+    
+    # Train News Impact ML Model
+    if NEWS_IMPACT_ML_AVAILABLE:
+        try:
+            news_predictor = get_news_impact_predictor()
+            news_retrain_file = 'news_impact_last_train.json'
+            should_retrain_news = True
+            if os.path.exists(news_retrain_file):
+                try:
+                    with open(news_retrain_file, 'r') as f:
+                        last_train_data = json.load(f)
+                        last_train_time = datetime.fromisoformat(last_train_data.get('timestamp', '2000-01-01'))
+                        hours_since_train = (datetime.now() - last_train_time).total_seconds() / 3600
+                        should_retrain_news = hours_since_train >= ML_RETRAIN_INTERVAL
+                except (ValueError, json.JSONDecodeError, KeyError) as e:
+                    should_retrain_news = True
+            
+            if should_retrain_news:
+                print("Training/retraining News Impact ML model...")
+                if news_predictor.train(TRADE_LOG_FILE):
+                    print("News Impact ML model trained successfully")
+                    with open(news_retrain_file, 'w') as f:
+                        json.dump({'timestamp': datetime.now().isoformat()}, f)
+                else:
+                    print("News Impact ML model training skipped (insufficient data)")
+        except Exception as e:
+            print(f"News Impact ML training error: {e}")
     
     print_current_parameters()  # Show updated parameters after adjustments
 
