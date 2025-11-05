@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 class MLTradingPredictor:
     """Machine learning predictor for trading decisions"""
     
+    # Class constants for feature extraction
+    SUPPORT_DISTANCE_MULTIPLIER = 0.98
+    RESISTANCE_DISTANCE_MULTIPLIER = 1.02
+    
     def __init__(self, model_path='ml_model.pkl', scaler_path='ml_scaler.pkl'):
         self.model_path = model_path
         self.scaler_path = scaler_path
@@ -90,8 +94,8 @@ class MLTradingPredictor:
         
         # Price position relative to key levels
         price = trade_data.get('price', 1.0)
-        support = trade_data.get('support', price * 0.98)
-        resistance = trade_data.get('resistance', price * 1.02)
+        support = trade_data.get('support', price * self.SUPPORT_DISTANCE_MULTIPLIER)
+        resistance = trade_data.get('resistance', price * self.RESISTANCE_DISTANCE_MULTIPLIER)
         pivot = trade_data.get('pivot', price)
         
         features.append((price - support) / price if price > 0 else 0)
@@ -148,7 +152,8 @@ class MLTradingPredictor:
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X_scaled, y, test_size=0.2, random_state=42, stratify=y if len(np.unique(y)) > 1 else None
+            X_scaled, y, test_size=0.2, random_state=42, 
+            stratify=y if len(np.unique(y)) > 1 and min(np.bincount(y)) > 1 else None
         )
         
         # Train ensemble model (Random Forest + Gradient Boosting)
@@ -156,8 +161,9 @@ class MLTradingPredictor:
         gb = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42)
         
         # Use cross-validation to select best model
-        rf_scores = cross_val_score(rf, X_train, y_train, cv=min(5, len(X_train) // 10), scoring='accuracy')
-        gb_scores = cross_val_score(gb, X_train, y_train, cv=min(5, len(X_train) // 10), scoring='accuracy')
+        cv_folds = max(2, min(5, len(X_train) // 10))
+        rf_scores = cross_val_score(rf, X_train, y_train, cv=cv_folds, scoring='accuracy')
+        gb_scores = cross_val_score(gb, X_train, y_train, cv=cv_folds, scoring='accuracy')
         
         logger.info(f"Random Forest CV score: {rf_scores.mean():.3f} (+/- {rf_scores.std():.3f})")
         logger.info(f"Gradient Boosting CV score: {gb_scores.mean():.3f} (+/- {gb_scores.std():.3f})")

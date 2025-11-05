@@ -368,8 +368,8 @@ DEFAULT_SYMBOLS = [
 ]
 
 # Risk settings (optimized based on industry best practices)
-MIN_STOP_PCT = 0.0008  # 0.08% - More realistic stops to avoid premature exits
-EXPECTED_RETURN_PER_SENTIMENT = 0.012  # 1.2% per sentiment point (better profit potential)
+MIN_STOP_PCT = 0.0008  # 0.08% (0.0008 as decimal) - More realistic stops to avoid premature exits
+EXPECTED_RETURN_PER_SENTIMENT = 0.012  # 1.2% per sentiment point (0.012 as decimal)
 NEWS_COUNT_BONUS = 0.003  # 0.3% per article (appropriate news impact)
 MAX_NEWS_BONUS = 0.015  # Max 1.5% bonus from news
 
@@ -381,10 +381,10 @@ MAX_LEVERAGE_STOCK = 5    # Increased to 5:1 for stocks (more reasonable)
 LOW_MONEY_MODE = True
 
 if LOW_MONEY_MODE:
-    EXPECTED_RETURN_PER_SENTIMENT = 0.015  # 1.5% - Better ROI for small accounts
+    EXPECTED_RETURN_PER_SENTIMENT = 0.015  # 1.5% (0.015 as decimal) - Better ROI for small accounts
     NEWS_COUNT_BONUS = 0.004  # 0.4% - Enhanced news impact
     MAX_NEWS_BONUS = 0.02  # 2% - Higher max bonus
-    MIN_STOP_PCT = 0.0006  # 0.06% - Tighter but realistic stops
+    MIN_STOP_PCT = 0.0006  # 0.06% (0.0006 as decimal) - Tighter but realistic stops
 
 # Daily risk limit (optimized for consistent profitability)
 DAILY_RISK_LIMIT = 0.02  # 2% max loss per day (industry standard)
@@ -428,6 +428,9 @@ MARKET_SESSIONS = [
     ('London', 8, 16),
     ('New York', 13.5, 20),  # 13:30 to 20:00
 ]
+
+# Debug symbols for logging
+DEBUG_SYMBOLS = ['EURUSD', 'GBPUSD', 'GC=F']
 
 def get_current_market_session():
     """Return the current market session name or 'Off-hours' if none."""
@@ -2148,7 +2151,7 @@ def main(backtest_only=False):
             continue
 
         # Debug for first few
-        if sym in ['EURUSD', 'GBPUSD', 'GC=F']:
+        if sym in DEBUG_SYMBOLS:
             print(f"DEBUG {sym}: sentiment={avg_sent:.3f}, expected_return={plan['expected_return_pct']:.6f}, direction={plan['direction']}, rsi={plan['rsi_signal']}, macd={plan['macd_signal']}, bb={plan['bb_signal']}, rr={plan['rr']:.2f}")
 
         # Only keep actionable plans
@@ -2211,11 +2214,11 @@ def main(backtest_only=False):
                     trade_data, min_confidence=ML_MIN_CONFIDENCE, min_probability=ML_MIN_PROBABILITY
                 )
                 if not should_trade:
-                    if sym in ['EURUSD', 'GBPUSD', 'GC=F']:
+                    if sym in DEBUG_SYMBOLS:
                         print(f"ML FILTER {sym}: prob={ml_probability:.3f}, conf={ml_confidence:.3f} - Trade rejected")
                     continue  # Skip trades that ML predicts will fail
                 else:
-                    if sym in ['EURUSD', 'GBPUSD', 'GC=F']:
+                    if sym in DEBUG_SYMBOLS:
                         print(f"ML APPROVED {sym}: prob={ml_probability:.3f}, conf={ml_confidence:.3f}")
             except Exception as e:
                 print(f"ML prediction error for {sym}: {e}")
@@ -2272,11 +2275,15 @@ def main(backtest_only=False):
             retrain_file = 'ml_last_train.json'
             should_retrain = True
             if os.path.exists(retrain_file):
-                with open(retrain_file, 'r') as f:
-                    last_train_data = json.load(f)
-                    last_train_time = datetime.fromisoformat(last_train_data.get('timestamp', '2000-01-01'))
-                    hours_since_train = (datetime.now() - last_train_time).total_seconds() / 3600
-                    should_retrain = hours_since_train >= ML_RETRAIN_INTERVAL
+                try:
+                    with open(retrain_file, 'r') as f:
+                        last_train_data = json.load(f)
+                        last_train_time = datetime.fromisoformat(last_train_data.get('timestamp', '2000-01-01'))
+                        hours_since_train = (datetime.now() - last_train_time).total_seconds() / 3600
+                        should_retrain = hours_since_train >= ML_RETRAIN_INTERVAL
+                except (ValueError, json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"Error reading last train time: {e}, will retrain")
+                    should_retrain = True
             
             if should_retrain:
                 print("Training/retraining ML model...")
