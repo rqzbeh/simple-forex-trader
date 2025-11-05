@@ -6,8 +6,11 @@ import json
 import requests
 import logging
 import sys
+import asyncio
+import aiohttp
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
 import yfinance as yf
 from textblob import TextBlob
@@ -51,6 +54,11 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
     print("Warning: LLM news analyzer not available.")
+
+# Suppress yfinance warnings and errors for cleaner output
+logging.getLogger('yfinance').setLevel(logging.ERROR)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('requests').setLevel(logging.WARNING)
 
 # Silence yfinance verbosity
 logging.getLogger("yfinance").setLevel(logging.ERROR)
@@ -405,6 +413,7 @@ TRADE_LOG_FILE = 'trade_log.json'
 
 # ML Configuration
 ML_ENABLED = True  # Enable machine learning predictions
+NEWS_IMPACT_ENABLED = True  # Enable news impact analysis for trade direction
 ML_MIN_CONFIDENCE = 0.60  # Minimum confidence for ML predictions
 ML_MIN_PROBABILITY = 0.55  # Minimum win probability from ML
 ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
@@ -517,9 +526,13 @@ def get_news():
 
     # Fetch RSS-based forex sources (assume recent)
     for name, url in FOREX_NEWS_SOURCES:
-        items = fetch_rss_items(url)
-        for it in items:
-            results.append({'title': it.get('title', ''), 'description': it.get('description', ''), 'source': name})
+        try:
+            items = fetch_rss_items(url)
+            for it in items:
+                results.append({'title': it.get('title', ''), 'description': it.get('description', ''), 'source': name})
+        except Exception as e:
+            print(f'RSS fetch error for {name}: {e}')
+            continue
 
     # Fetch influential tweets (commented out due to snscrape issues in Python 3.12)
     # tweets = fetch_tweets()
@@ -1455,7 +1468,7 @@ def recommend_leverage(rr, volatility, kind='forex'):
     lev = min(base, max_lev)
     return max(1, lev)
 
-def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
+def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex', news_impact=None):
     '''Return dict with direction, expected_profit_pct, stop_pct, rr, recommended_leverage.'''
     global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
     if not market_data:
@@ -1614,15 +1627,27 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
 
     # decide direction based on sentiment and confirmations
     direction = 'flat'
-    if avg_sentiment > 0.05 and bullish_signals >= min_confirmations:
-        direction = 'long'
-    elif avg_sentiment < -0.05 and bearish_signals >= min_confirmations:
-        direction = 'short'
-    # Allow technical-only trades if strong signals
-    elif bullish_signals >= 4:
-        direction = 'long'
-    elif bearish_signals >= 4:
-        direction = 'short'
+
+    # Check if news impact suggests a specific direction
+    if news_impact and news_impact.get('suggested_direction'):
+        direction = news_impact['suggested_direction']
+        if direction in ['long', 'short']:
+            # News-driven direction - still require minimum technical confirmation
+            if (direction == 'long' and bullish_signals >= 2) or (direction == 'short' and bearish_signals >= 2):
+                pass  # Keep news-driven direction
+            else:
+                direction = 'flat'  # Not enough technical confirmation for news direction
+    else:
+        # Normal technical + sentiment analysis
+        if avg_sentiment > 0.05 and bullish_signals >= min_confirmations:
+            direction = 'long'
+        elif avg_sentiment < -0.05 and bearish_signals >= min_confirmations:
+            direction = 'short'
+        # Allow technical-only trades if strong signals
+        elif bullish_signals >= 4:
+            direction = 'long'
+        elif bearish_signals >= 4:
+            direction = 'short'
 
     lev = recommend_leverage(rr, vol, kind=kind)
 
@@ -1811,14 +1836,17 @@ def evaluate_trades():
                     globals()[f'{ind.upper()}_WEIGHT'] = 1.0  # Neutralize underperformers
                 print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
         
-        # Adjust overall parameters if win rate < 45%
-        if win_rate < 0.45:
+        # Adjust overall parameters if win rate < 45% AND sufficient sample size
+        if win_rate < 0.45 and total >= 10:  # Require at least 10 trades for adjustments
             global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
+            MIN_STOP_PCT *= 0.95  # Less aggressive adjustment
+            print("Adjusted: slightly tighter stops due to low win rate.")
+        elif win_rate < 0.3 and total >= 5:  # Very low win rate even with smaller sample
             MIN_STOP_PCT *= 0.9
-            print("Adjusted: tighter stops due to low win rate (<30%).")
-            # Enable new technique if overall poor
-            # NEW_TECHNIQUE_ENABLED = True
-            print("Consider enabling new techniques due to low performance.")
+            print("Adjusted: tighter stops due to very low win rate.")
+        elif win_rate > 0.6 and total >= 10:  # Good performance - loosen stops slightly
+            MIN_STOP_PCT *= 1.05
+            print("Adjusted: slightly looser stops due to good performance.")
         
         # Save back
         with open(TRADE_LOG_FILE, 'w') as f:
@@ -2129,7 +2157,7 @@ def print_current_parameters():
     print(f"SAR_WEIGHT: {SAR_WEIGHT:.2f}")
     print("====================================")
 
-def main(backtest_only=False):
+async def main(backtest_only=False):
     if not backtest_only:
         current_session = get_current_market_session()
         print(f"Current market session: {current_session}")
@@ -2161,7 +2189,7 @@ def main(backtest_only=False):
     # Initialize with default symbols (news optional)
     symbol_articles = {}
     for sym, yf, kind in DEFAULT_SYMBOLS:
-        symbol_articles[sym] = {'yf': yf, 'kind': kind, 'texts': [], 'count': 0}
+        symbol_articles[sym] = {'yf': yf, 'kind': kind, 'texts': [], 'articles': [], 'count': 0}
 
     # Group articles mentioning each symbol
     for a in articles:
@@ -2183,28 +2211,51 @@ def main(backtest_only=False):
 
     results = []
     print('Analyzing candidates...')
-    for sym, info in symbol_articles.items():
+    
+    # Prepare concurrent data fetching
+    import asyncio
+    async def analyze_symbol(sym, info):
         texts = info['texts']
         articles_for_symbol = info.get('articles', [])
         
         # Use LLM-enhanced sentiment if available
         avg_sent, llm_confidence, llm_analysis = analyze_sentiment_with_llm(articles_for_symbol, sym)
         
+        # Check news impact and get trading guidance
+        news_impact = None
+        if NEWS_IMPACT_ENABLED and articles_for_symbol:
+            try:
+                from news_impact_predictor import get_news_impact_predictor
+                impact_predictor = get_news_impact_predictor()
+                news_impact = impact_predictor.predict_news_impact(articles_for_symbol, sym)
+                
+                if sym in DEBUG_SYMBOLS:
+                    print(f"NEWS IMPACT {sym}: {news_impact['impact_level']} (score: {news_impact['impact_score']:.2f}) - {news_impact['reason']}")
+                
+                # Skip if news impact predictor says not to trade
+                if not news_impact['should_trade']:
+                    if sym in DEBUG_SYMBOLS:
+                        print(f"NEWS FILTER {sym}: Skipping due to news impact")
+                    return None
+                    
+            except Exception as e:
+                print(f"News impact prediction error for {sym}: {e}")
+        
         news_count = info['count']
         yf_symbol = info['yf']
         kind = info['kind']
 
-        market = get_market_data(yf_symbol, kind=kind)
+        market = await get_market_data_async(yf_symbol, kind=kind)
         if not market:
-            continue
+            return None
 
         # Skip high volatility periods (>2%)
         if market['volatility_hourly'] > 0.02:
-            continue
+            return None
 
-        plan = calculate_trade_plan(avg_sent, news_count, market, kind=kind)
+        plan = calculate_trade_plan(avg_sent, news_count, market, kind=kind, news_impact=news_impact)
         if not plan:
-            continue
+            return None
 
         # Debug for first few
         if sym in DEBUG_SYMBOLS:
@@ -2212,17 +2263,17 @@ def main(backtest_only=False):
 
         # Only keep actionable plans
         if plan['direction'] == 'flat' or plan['rr'] < 2.0:  # Minimum 2:1 RR for quality trades
-            continue
+            return None
 # --- OPTIONAL safety in main() loop, just before get_market_data(...) ---
         # Skip unknown/price-less stock-like tickers defensively
         if kind == 'stock' and not _symbol_has_prices(yf_symbol):
-            continue
+            return None
 
         # Check daily risk limit
         trade_risk = plan['stop_pct'] * plan['recommended_leverage']
         current_daily_risk = get_daily_risk()
         if current_daily_risk + trade_risk > DAILY_RISK_LIMIT:
-            continue  # Skip this trade to stay within daily risk limit
+            return None  # Skip this trade to stay within daily risk limit
 
         # Low money adjustments: if entry * leverage < $100, boost ROI and leverage for better R/R
         entry_cost = market['price'] * plan['recommended_leverage']
@@ -2234,7 +2285,7 @@ def main(backtest_only=False):
             plan['rr'] = plan['expected_profit_pct'] / plan['stop_pct'] if plan['stop_pct'] > 0 else 0
             trade_risk = plan['stop_pct'] * plan['recommended_leverage']  # Recalculate risk
             if current_daily_risk + trade_risk > DAILY_RISK_LIMIT:
-                continue  # Still skip if exceeds
+                return None  # Still skip if exceeds
 
         # ML prediction filtering (if enabled and available)
         ml_probability = 0.5
@@ -2272,7 +2323,7 @@ def main(backtest_only=False):
                 if not should_trade:
                     if sym in DEBUG_SYMBOLS:
                         print(f"ML FILTER {sym}: prob={ml_probability:.3f}, conf={ml_confidence:.3f} - Trade rejected")
-                    continue  # Skip trades that ML predicts will fail
+                    return None  # Skip trades that ML predicts will fail
                 else:
                     if sym in DEBUG_SYMBOLS:
                         print(f"ML APPROVED {sym}: prob={ml_probability:.3f}, conf={ml_confidence:.3f}")
@@ -2280,7 +2331,7 @@ def main(backtest_only=False):
                 print(f"ML prediction error for {sym}: {e}")
                 # Continue without ML filter on error
 
-        results.append({
+        return {
             'symbol': sym,
             'yf_symbol': yf_symbol,
             'kind': kind,
@@ -2314,7 +2365,16 @@ def main(backtest_only=False):
             'ml_probability': ml_probability,
             'ml_confidence': ml_confidence,
             **plan
-        })
+        }
+    
+    # Run concurrent analysis
+    tasks = [analyze_symbol(sym, info) for sym, info in symbol_articles.items()]
+    analysis_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Filter out None results and exceptions
+    for result in analysis_results:
+        if result is not None and not isinstance(result, Exception):
+            results.append(result)
 
     # sort by quality: rr then news_count
     results.sort(key=lambda r: (r['rr'], r['news_count']), reverse=True)
@@ -2340,7 +2400,7 @@ def main(backtest_only=False):
                         hours_since_train = (datetime.now() - last_train_time).total_seconds() / 3600
                         should_retrain = hours_since_train >= ML_RETRAIN_INTERVAL
                 except (ValueError, json.JSONDecodeError, KeyError) as e:
-                    logger.warning(f"Error reading last train time: {e}, will retrain")
+                    logging.warning(f"Error reading last train time: {e}, will retrain")
                     should_retrain = True
             
             if should_retrain:
@@ -2392,8 +2452,8 @@ def main(backtest_only=False):
     return results
 
 @lru_cache(maxsize=100)
-def get_market_data(yf_symbol, kind='forex'):
-    """Get recent price, volatility/ATR, pivots, S/R, psych levels, candle patterns, smart money volume, ICT FVG."""
+async def get_market_data_async(yf_symbol, kind='forex', session=None):
+    """Async version of get_market_data for concurrent fetching."""
     # Try yfinance first (primary)
     print(f"Attempting yfinance for {yf_symbol}...")
     data = _get_yfinance_data(yf_symbol, kind)
@@ -2401,8 +2461,9 @@ def get_market_data(yf_symbol, kind='forex'):
         print(f"yfinance success for {yf_symbol}")
         return data
     else:
-        print(f"yfinance failed or no data for {yf_symbol}")
+        print(f"yfinance failed for {yf_symbol}")
     
+    # For now, keep other providers synchronous as they may not support async easily
     # Fallback to Alpha Vantage for forex
     if kind == 'forex':
         if not ALPHA_VANTAGE_API_KEY:
@@ -2493,7 +2554,8 @@ def get_market_data(yf_symbol, kind='forex'):
     return None
 
 if __name__ == '__main__':
+    import asyncio
     if len(sys.argv) > 1 and sys.argv[1] == '--backtest':
-        main(backtest_only=True)
+        asyncio.run(main(backtest_only=True))
     else:
-        main()
+        asyncio.run(main())

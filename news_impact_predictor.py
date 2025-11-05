@@ -320,6 +320,8 @@ class NewsImpactPredictor:
                 - impact_score: float -1 to 1 (negative = bearish, positive = bullish)
                 - confidence: float 0 to 1
                 - should_trade: bool
+                - suggested_direction: 'long', 'short', or None (None = use technical analysis)
+                - ml_prediction: float 0 to 1 (probability of news-driven failure)
                 - reason: str explanation
         """
         # Rule-based categorization (always available)
@@ -351,14 +353,31 @@ class NewsImpactPredictor:
             impact_score *= 0.5
             impact_level = 'high' if impact_level == 'high' else 'medium'
         
-        # Trading decision
+        # Trading decision with directionality
         should_trade = True
+        suggested_direction = None  # None = use technical analysis, 'long'/'short' = force direction
         reason = f"News impact: {impact_level} (score: {impact_score:.2f})"
         
-        if impact_level == 'high' and abs(impact_score) > 0.5:
-            should_trade = False
-            reason = f"High news impact detected (score: {impact_score:.2f}) - high volatility expected"
+        if impact_level == 'high':
+            if abs(impact_score) > 0.5:
+                # High impact news - use news direction instead of stopping
+                if impact_score < -0.5:
+                    # Bearish news - suggest shorting
+                    suggested_direction = 'short'
+                    reason = f"Bearish news impact (score: {impact_score:.2f}) - optimal shorting opportunity"
+                elif impact_score > 0.5:
+                    # Bullish news - suggest longing  
+                    suggested_direction = 'long'
+                    reason = f"Bullish news impact (score: {impact_score:.2f}) - optimal longing opportunity"
+                else:
+                    # Uncertain direction - stop trading
+                    should_trade = False
+                    reason = f"High news impact but uncertain direction (score: {impact_score:.2f}) - avoiding trade"
+            else:
+                # Medium-high impact but low score - use technical analysis
+                reason = f"Medium-high news impact (score: {impact_score:.2f}) - using technical analysis"
         elif ml_prediction > 0.8:
+            # ML predicts high probability of news-driven failure - stop trading
             should_trade = False
             reason = f"ML predicts high probability ({ml_prediction:.2f}) of news-driven failure"
         
@@ -367,6 +386,7 @@ class NewsImpactPredictor:
             'impact_score': impact_score,
             'confidence': combined_confidence,
             'should_trade': should_trade,
+            'suggested_direction': suggested_direction,
             'ml_prediction': ml_prediction,
             'reason': reason
         }

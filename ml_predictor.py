@@ -114,20 +114,22 @@ class MLTradingPredictor:
         return np.array(features).reshape(1, -1)
     
     def prepare_training_data(self, trade_log_file='trade_log.json'):
-        """Prepare training data from historical trades"""
+        """Prepare training data from historical trades with recency-based sample weights"""
         if not os.path.exists(trade_log_file):
             logger.warning(f"Trade log file {trade_log_file} not found")
-            return None, None
+            return None, None, None
         
         with open(trade_log_file, 'r') as f:
             trades = json.load(f)
         
         if len(trades) < self.min_training_samples:
             logger.warning(f"Not enough trades for training: {len(trades)} < {self.min_training_samples}")
-            return None, None
+            return None, None, None
         
         X = []
         y = []
+        sample_weights = []
+        current_time = datetime.now()
         
         for trade in trades:
             # Skip open trades
@@ -141,18 +143,30 @@ class MLTradingPredictor:
             # Label: 1 for win, 0 for loss
             label = 1 if trade.get('status') == 'win' else 0
             y.append(label)
+            
+            # Calculate sample weight based on recency (newer trades have higher weight)
+            try:
+                trade_time = datetime.fromisoformat(trade.get('timestamp', '2000-01-01'))
+                days_old = (current_time - trade_time).days
+                # Weight decreases exponentially with age: weight = e^(-days_old/30)
+                # This gives ~37% weight after 30 days, ~14% after 60 days, etc.
+                weight = np.exp(-days_old / 30.0)
+                sample_weights.append(weight)
+            except (ValueError, TypeError):
+                # If timestamp parsing fails, use default weight
+                sample_weights.append(1.0)
         
         if len(X) < self.min_training_samples:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")
-            return None, None
+            return None, None, None
         
-        return np.array(X), np.array(y)
+        return np.array(X), np.array(y), np.array(sample_weights)
     
     def train(self, trade_log_file='trade_log.json'):
-        """Train the ML model on historical trades"""
-        X, y = self.prepare_training_data(trade_log_file)
+        """Train the ML model on historical trades with recency-based sample weighting"""
+        X, y, sample_weights = self.prepare_training_data(trade_log_file)
         
-        if X is None or y is None:
+        if X is None or y is None or sample_weights is None:
             logger.warning("Cannot train model: insufficient data")
             return False
         
@@ -160,16 +174,16 @@ class MLTradingPredictor:
         X_scaled = self.scaler.fit_transform(X)
         
         # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_scaled, y, test_size=0.2, random_state=42, 
+        X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
+            X_scaled, y, sample_weights, test_size=0.2, random_state=42, 
             stratify=y if len(np.unique(y)) > 1 and min(np.bincount(y)) > 1 else None
         )
         
-        # Train ensemble model (Random Forest + Gradient Boosting)
+        # Train ensemble model (Random Forest + Gradient Boosting) with sample weights
         rf = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, class_weight='balanced')
         gb = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42)
         
-        # Use cross-validation to select best model
+        # Use cross-validation to select best model (without sample weights for simplicity)
         cv_folds = max(2, min(5, len(X_train) // 10))
         rf_scores = cross_val_score(rf, X_train, y_train, cv=cv_folds, scoring='accuracy')
         gb_scores = cross_val_score(gb, X_train, y_train, cv=cv_folds, scoring='accuracy')
@@ -185,11 +199,11 @@ class MLTradingPredictor:
             self.model = gb
             logger.info("Selected Gradient Boosting as primary model")
         
-        # Train on full training set
-        self.model.fit(X_train, y_train)
+        # Train on full training set with sample weights
+        self.model.fit(X_train, y_train, sample_weight=weights_train)
         
         # Evaluate on test set
-        test_score = self.model.score(X_test, y_test)
+        test_score = self.model.score(X_test, y_test, sample_weight=weights_test)
         logger.info(f"Test accuracy: {test_score:.3f}")
         
         # Feature importance
