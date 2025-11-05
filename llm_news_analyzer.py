@@ -1,6 +1,6 @@
 """
 LLM-Enhanced News Analyzer for Market Impact Prediction
-Uses Large Language Models to deeply understand news and predict market impact
+Uses Groq LLMs to deeply understand news and predict market impact
 """
 
 import os
@@ -22,6 +22,14 @@ try:
 except ImportError:
     GROQ_AVAILABLE = False
     logger.warning("Groq library not available. Install with: pip install groq")
+
+# Import rate limiter
+try:
+    from groq_rate_limiter import get_rate_limiter
+    RATE_LIMITER_AVAILABLE = True
+except ImportError:
+    RATE_LIMITER_AVAILABLE = False
+    logger.warning("Rate limiter not available")
 
 
 class LLMNewsAnalyzer:
@@ -175,6 +183,25 @@ class LLMNewsAnalyzer:
                 'was_cached': True
             }
         
+        # Check rate limits before making API call
+        if RATE_LIMITER_AVAILABLE:
+            rate_limiter = get_rate_limiter()
+            can_proceed, reason = rate_limiter.can_make_request(estimated_tokens=500)
+            if not can_proceed:
+                logger.warning(f"Rate limit reached: {reason}")
+                return {
+                    'sentiment_score': 0.0,
+                    'market_impact': 'low',
+                    'affected_instruments': [],
+                    'time_horizon': 'short_term',
+                    'confidence': 0.0,
+                    'reasoning': f'Rate limit: {reason}',
+                    'people_impact': 'Rate limit reached',
+                    'market_mechanism': 'API quota exceeded',
+                    'was_cached': False,
+                    'rate_limited': True
+                }
+        
         try:
             # Prepare prompt
             prompt = self._create_analysis_prompt(article, symbol)
@@ -185,6 +212,7 @@ class LLMNewsAnalyzer:
             # Mark as analyzed
             self._mark_as_analyzed(article)
             response['was_cached'] = False
+            response['rate_limited'] = False
             
             return response
         
@@ -245,7 +273,7 @@ Return ONLY valid JSON, no additional text."""
         return prompt
     
     def _call_groq(self, prompt: str) -> Dict:
-        """Call Groq API"""
+        """Call Groq API and record usage"""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -259,6 +287,13 @@ Return ONLY valid JSON, no additional text."""
             
             content = response.choices[0].message.content
             result = json.loads(content)
+            
+            # Record API usage
+            if RATE_LIMITER_AVAILABLE:
+                rate_limiter = get_rate_limiter()
+                # Estimate tokens used (input + output)
+                tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 500
+                rate_limiter.record_usage(tokens_used)
             
             # Validate and normalize result
             return self._normalize_result(result)
@@ -407,46 +442,43 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     return _llm_analyzer
 
 
-def enhance_sentiment_with_llm(articles: List[Dict], symbol: str, basic_sentiment: float) -> Tuple[float, float, Dict]:
+def enhance_sentiment_with_llm(articles: List[Dict], symbol: str, basic_sentiment: float = 0.0) -> Tuple[float, float, Dict]:
     """
-    Enhance basic sentiment analysis with LLM insights
+    Analyze sentiment using LLM (no TextBlob fallback - LLM is mandatory)
     
     Args:
         articles: List of news articles
         symbol: Trading symbol
-        basic_sentiment: Basic sentiment from TextBlob
+        basic_sentiment: Legacy parameter, ignored (LLM only now)
     
     Returns:
-        Tuple of (enhanced_sentiment, confidence, llm_analysis)
+        Tuple of (sentiment, confidence, llm_analysis)
     """
-    # LLM is now mandatory - no optional flag
+    # LLM is now mandatory - no fallback
     if not articles:
-        return basic_sentiment, 0.0, {}
+        return 0.0, 0.0, {}
     
     try:
         analyzer = get_llm_analyzer()
         llm_analysis = analyzer.analyze_news_batch(articles, symbol)
         
-        # Blend basic sentiment with LLM sentiment
-        # Weight LLM sentiment more if confidence is high
-        llm_weight = llm_analysis['llm_confidence']
-        basic_weight = 1.0 - llm_weight
-        
-        enhanced_sentiment = (basic_sentiment * basic_weight + llm_analysis['llm_sentiment'] * llm_weight)
+        # Use LLM sentiment directly (no blending)
+        llm_sentiment = llm_analysis['llm_sentiment']
+        llm_confidence = llm_analysis['llm_confidence']
         
         # Boost if market impact is high
         if llm_analysis['market_impact'] == 'high':
-            enhanced_sentiment *= 1.3
+            llm_sentiment *= 1.3
         elif llm_analysis['market_impact'] == 'medium':
-            enhanced_sentiment *= 1.15
+            llm_sentiment *= 1.15
         
         # Clamp to valid range
-        enhanced_sentiment = max(-1.0, min(1.0, enhanced_sentiment))
+        llm_sentiment = max(-1.0, min(1.0, llm_sentiment))
         
-        logger.info(f"Enhanced sentiment for {symbol}: {basic_sentiment:.3f} -> {enhanced_sentiment:.3f} (confidence: {llm_analysis['llm_confidence']:.2f})")
+        logger.info(f"LLM sentiment for {symbol}: {llm_sentiment:.3f} (confidence: {llm_confidence:.2f})")
         
-        return enhanced_sentiment, llm_analysis['llm_confidence'], llm_analysis
+        return llm_sentiment, llm_confidence, llm_analysis
     
     except Exception as e:
-        logger.error(f"LLM enhancement error: {e}")
-        return basic_sentiment, 0.0, {}
+        logger.error(f"LLM analysis error: {e}")
+        return 0.0, 0.0, {}

@@ -90,6 +90,8 @@ print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
 print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
 print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
 print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set (REQUIRED)'}")
+print(f"Groq Rate Limits: {'Disabled' if not GROQ_ENFORCE_LIMITS else f'{GROQ_MAX_REQUESTS_PER_DAY} req/day, {GROQ_MAX_TOKENS_PER_DAY} tokens/day'}")
+
 
 # Initialize clients lazily when keys are present
 _polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY else None
@@ -422,7 +424,13 @@ ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 # LLM analysis is now mandatory and always enabled
 LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'groq')  # Only 'groq' is supported
 LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile if None
-LLM_SENTIMENT_WEIGHT = 0.7  # Weight for LLM sentiment vs basic sentiment (0.0-1.0)
+
+# Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
+# Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
+GROQ_MAX_REQUESTS_PER_DAY = int(os.getenv('GROQ_MAX_REQUESTS_PER_DAY', 1000))
+GROQ_MAX_TOKENS_PER_DAY = int(os.getenv('GROQ_MAX_TOKENS_PER_DAY', 500000))
+GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
+
 
 # Backtesting configuration
 BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
@@ -580,27 +588,9 @@ def extract_forex_and_tickers(text: str):
 
     return [{'symbol': k, 'yf': v[0], 'kind': v[1]} for k, v in found.items()]
 
-def analyze_sentiment(texts):
-    '''Aggregate sentiment over a list of texts using TextBlob. Boost influential sources.'''
-    scores = []
-    for t in texts:
-        try:
-            b = TextBlob(t)
-            polarity = b.sentiment.polarity
-            # Boost sentiment from influential forex sources (central banks, economists)
-            if any(word in t.get('source', '').lower() for word in ['ecb', 'fed', 'boj', 'boe', 'reuters', 'bloomberg']):
-                polarity *= 1.5  # Boost for authoritative sources
-            scores.append(polarity)
-        except Exception:
-            continue
-    if not scores:
-        return 0.0
-    # weighted by recency could be added; simple average for now
-    return sum(scores) / len(scores)
-
 def analyze_sentiment_with_llm(articles, symbol=''):
     '''
-    Enhanced sentiment analysis combining TextBlob with LLM insights.
+    Sentiment analysis using LLM only (no TextBlob fallback)
     
     Args:
         articles: List of article dicts with 'title', 'description', 'source'
@@ -609,27 +599,16 @@ def analyze_sentiment_with_llm(articles, symbol=''):
     Returns:
         Tuple of (sentiment_score, llm_confidence, llm_analysis)
     '''
-    # Get basic sentiment from TextBlob
-    texts = []
-    for a in articles:
-        title = a.get('title', '')
-        desc = a.get('description', '')
-        text = f'{title} {desc}'.strip()
-        if text:
-            texts.append(text)
-    
-    basic_sentiment = analyze_sentiment(articles)
-    
-    # LLM is now mandatory - always enhance sentiment
+    # LLM is now mandatory - use it directly
     try:
-        enhanced_sentiment, llm_confidence, llm_analysis = enhance_sentiment_with_llm(
-            articles, symbol, basic_sentiment
+        sentiment, llm_confidence, llm_analysis = enhance_sentiment_with_llm(
+            articles, symbol, basic_sentiment=0.0  # No TextBlob, pass 0
         )
-        return enhanced_sentiment, llm_confidence, llm_analysis
+        return sentiment, llm_confidence, llm_analysis
     except Exception as e:
-        print(f"LLM sentiment enhancement error: {e}")
-        # Return basic sentiment as fallback but log the error
-        return basic_sentiment, 0.0, {}
+        print(f"LLM sentiment analysis error: {e}")
+        # No fallback - return neutral
+        return 0.0, 0.0, {}
 
 @lru_cache(maxsize=100)
 def _get_yfinance_data(yf_symbol, kind='forex'):
