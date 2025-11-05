@@ -154,8 +154,11 @@ class LLMNewsAnalyzer:
             }
         
         if not self.client:
-            # Fallback to basic analysis
-            return self._basic_analysis(article, symbol)
+            # Fallback to basic analysis - still mark as analyzed
+            result = self._basic_analysis(article, symbol)
+            self._mark_as_analyzed(article)
+            result['was_cached'] = False
+            return result
         
         try:
             # Prepare prompt
