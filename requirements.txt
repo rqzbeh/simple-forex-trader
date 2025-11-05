@@ -1,6 +1,5 @@
 newsapi-python
 yfinance
-textblob
 requests
 alpha_vantage
 iexfinance

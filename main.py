@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
 import yfinance as yf
-from textblob import TextBlob
 from alpha_vantage.foreignexchange import ForeignExchange
 from iexfinance.stocks import Stock
 try:
@@ -64,6 +63,14 @@ try:
 except ImportError as e:
     print(f"WARNING: Market psychology analyzer not available: {e}")
     PSYCHOLOGY_ANALYZER_AVAILABLE = False
+
+# Import advanced risk manager
+try:
+    from advanced_risk_manager import get_risk_manager
+    ADVANCED_RISK_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: Advanced risk manager not available: {e}")
+    ADVANCED_RISK_AVAILABLE = False
 
 # Suppress yfinance warnings and errors for cleaner output
 logging.getLogger('yfinance').setLevel(logging.ERROR)
@@ -2463,6 +2470,59 @@ async def main(backtest_only=False):
                 print(f"ML prediction error for {sym}: {e}")
                 # Continue without ML filter on error
 
+        # Advanced Risk Management Integration
+        if ADVANCED_RISK_AVAILABLE:
+            try:
+                risk_mgr = get_risk_manager()
+                
+                # Detect market regime and adjust strategy
+                regime_info = risk_mgr.detect_market_regime(market)
+                plan = risk_mgr.adjust_strategy_for_regime(regime_info, plan)
+                
+                # Calculate Kelly Criterion position size
+                win_rate = ml_probability if ml_probability > 0.5 else 0.5
+                win_loss_ratio = plan['rr']  # Risk/reward ratio
+                kelly_size = risk_mgr.calculate_kelly_fraction(win_rate, win_loss_ratio, ml_confidence)
+                
+                # Override recommended leverage with Kelly-based size
+                base_position_size = kelly_size * 0.02  # Scale down for leverage
+                plan['recommended_leverage'] = base_position_size * 50  # Convert to leverage
+                plan['kelly_position_size'] = kelly_size
+                
+                # Check correlation limits
+                can_trade, reason, max_size = risk_mgr.check_correlation_limits(sym, kelly_size)
+                if not can_trade:
+                    if sym in DEBUG_SYMBOLS:
+                        print(f"CORRELATION FILTER {sym}: {reason}")
+                    # Adjust size if needed
+                    if max_size < kelly_size * 0.5:  # Less than half recommended
+                        return None  # Skip trade
+                    else:
+                        # Reduce to max allowed
+                        plan['kelly_position_size'] = max_size
+                        plan['recommended_leverage'] = max_size * 0.02 * 50
+                
+                # Get component weights for ensemble
+                component_weights = risk_mgr.get_component_weights()
+                
+                # Apply weights to expected return
+                technical_weight = component_weights.get('technical', 1.0)
+                sentiment_weight = component_weights.get('sentiment', 1.0)
+                psychology_weight = component_weights.get('psychology', 1.0)
+                ml_weight = component_weights.get('ml', 1.0)
+                
+                # Weight the plan based on Sharpe performance
+                plan['expected_return_pct'] *= (technical_weight * 0.4 + sentiment_weight * 0.2 + 
+                                               psychology_weight * 0.2 + ml_weight * 0.2)
+                
+                # Record regime for logging
+                plan['market_regime'] = regime_info['regime']
+                plan['regime_confidence'] = regime_info['confidence']
+                plan['component_weights'] = component_weights
+                
+            except Exception as e:
+                print(f"Advanced risk management error for {sym}: {e}")
+
         return {
             'symbol': sym,
             'yf_symbol': yf_symbol,
@@ -2549,6 +2609,47 @@ async def main(backtest_only=False):
     
     print_current_parameters()  # Show updated parameters after adjustments
     
+    # Show advanced risk management statistics if available
+    if ADVANCED_RISK_AVAILABLE:
+        try:
+            risk_mgr = get_risk_manager()
+            stats = risk_mgr.get_statistics()
+            
+            print("\n" + "="*60)
+            print("ADVANCED RISK MANAGEMENT STATUS")
+            print("="*60)
+            print(f"Kelly Criterion: {'Enabled' if stats['kelly_criterion_enabled'] else 'Disabled'}")
+            print(f"Regime Detection: {'Enabled' if stats['regime_detection_enabled'] else 'Disabled'}")
+            print(f"Correlation Filter: {'Enabled' if stats['correlation_filter_enabled'] else 'Disabled'}")
+            print(f"Sharpe Tracking: {'Enabled' if stats['sharpe_tracking_enabled'] else 'Disabled'}")
+            
+            if stats.get('current_regime'):
+                regime = stats['current_regime']
+                print(f"\nCurrent Market Regime: {regime['regime'].upper()} (confidence: {regime['confidence']:.2%})")
+            
+            if stats.get('sharpe_ratios'):
+                print("\nComponent Sharpe Ratios:")
+                for component, sharpe in stats['sharpe_ratios'].items():
+                    print(f"  {component.capitalize()}: {sharpe:.2f}")
+            
+            if stats.get('component_weights'):
+                print("\nComponent Weights (based on performance):")
+                for component, weight in stats['component_weights'].items():
+                    print(f"  {component.capitalize()}: {weight:.2f}x")
+            
+            if stats.get('win_rate'):
+                print(f"\nHistorical Win Rate: {stats['win_rate']:.2%}")
+                if stats.get('win_loss_ratio'):
+                    print(f"Avg Win/Loss Ratio: {stats['win_loss_ratio']:.2f}")
+            
+            print(f"\nOpen Positions: {stats['open_positions']}")
+            print(f"Trades Tracked: {stats['trades_tracked']}")
+            print("="*60 + "\n")
+            
+        except Exception as e:
+            if DEBUG:
+                print(f"Could not load advanced risk statistics: {e}")
+    
     # Show AI psychology performance if available
     try:
         from ai_performance_tracker import get_ai_performance_tracker
@@ -2589,7 +2690,14 @@ async def main(backtest_only=False):
         if r.get('psychology') and r['psychology']['irrationality_score'] > 0.4:
             psych = r['psychology']
             psychology_info = f" | Psychology: {psych['dominant_emotion']} (fear/greed: {psych['fear_greed_index']:+.2f}, irrational: {psych['irrationality_score']:.2f})"
-        trade_line = f"Symbol: {r['symbol']} | Direction: {r['direction'].upper()} | Entry Price: {r['price']:.4f} | Stop Loss: {stop_price:.4f} | Take Profit: {target_price:.4f} | Leverage: {r['recommended_leverage']}{ml_info}{psychology_info}"
+        
+        regime_info = ""
+        if r.get('market_regime') and ADVANCED_RISK_AVAILABLE:
+            regime_info = f" | Regime: {r['market_regime']}"
+            if r.get('kelly_position_size'):
+                regime_info += f" | Kelly: {r['kelly_position_size']:.1%}"
+        
+        trade_line = f"Symbol: {r['symbol']} | Direction: {r['direction'].upper()} | Entry Price: {r['price']:.4f} | Stop Loss: {stop_price:.4f} | Take Profit: {target_price:.4f} | Leverage: {r['recommended_leverage']}{ml_info}{psychology_info}{regime_info}"
         message += trade_line + "\n"
         print(trade_line)
 

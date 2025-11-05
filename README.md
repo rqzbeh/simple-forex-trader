@@ -1,8 +1,10 @@
 # Forex, Commodities & Indices News Trading Bot
 
-A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, and **machine learning predictions** for automated trading.
+A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, and **advanced quantitative risk management** for automated trading.
 
 ## Features
+
+### Core Intelligence Systems
 
 - **LLM-Enhanced News Analysis** (MANDATORY): Uses Groq LLMs for all sentiment and market impact analysis
   - Analyzes how news affects people, markets, and specific instruments
@@ -10,11 +12,12 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Provides reasoning and market mechanisms for each analysis
   - Supports multiple Groq models (llama-3.3-70b-versatile, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it, llama3-70b-8192)
   - Default model: llama-3.3-70b-versatile (GPT OSS 120B equivalent)
-  - **No fallback** - LLM handles all sentiment analysis (TextBlob removed)
+  - **No fallback** - LLM handles all sentiment analysis (no TextBlob)
   - **Rate limiting**: Built-in Groq free tier limit enforcement (1k requests/day, 500K tokens/day)
   - **Duplicate detection**: Automatically skips already-analyzed news articles
   - **Free tier available** with Groq
-- **Market Psychology Analysis** (NEW): AI-powered detection of fear, greed, and irrational behavior
+
+- **Market Psychology Analysis**: AI-powered detection of fear, greed, and irrational behavior
   - Analyzes market sentiment beyond fundamentals (fear, greed, panic, euphoria, uncertainty)
   - Detects irrational market behavior caused by human emotions
   - Fear/Greed Index: -1.0 (extreme fear) to +1.0 (extreme greed)
@@ -22,11 +25,25 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Trading recommendations: contrarian opportunities, follow momentum, or stay neutral
   - Adjusts trade strategy when markets are driven by emotion rather than fundamentals
   - Helps identify when technical analysis may be unreliable due to panic/euphoria
-- **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
+  - **AI Performance Tracker**: Learns from emotional trade failures to improve psychology analysis
+
+- **Advanced Risk Management** (NEW - Inspired by Renaissance Technologies):
+  - **Kelly Criterion Position Sizing**: Optimal position sizing based on win rate and risk/reward
+  - **Market Regime Detection**: Auto-detects trending, ranging, or volatile markets
+  - **Correlation-Based Trade Filtering**: Prevents opening correlated positions that compound risk
+  - **Sharpe Ratio Optimization**: Dynamically adjusts component weights based on risk-adjusted returns
+  - **Multi-layer Risk Controls**: Daily limits, per-trade limits, correlation-adjusted exposure
+  - **Dynamic Stop-Loss**: ATR-based stops that adapt to market volatility
+  - Configurable via environment variables (all features can be enabled/disabled)
+
+- **Dual Machine Learning System**: Two ML models work together for optimal performance
+  - **ML System 1** (ml_predictor.py): Optimizes technical analysis, learns from analytical failures
+  - **ML System 2** (news_impact_predictor.py): Classifies failures as analytical vs emotional
   - Automatically trains on historical trade data
   - Filters trades based on ML confidence and probability scores
   - Periodic retraining every 24 hours for continuous improvement
-  - Enhanced with LLM features (2 additional features) for better predictions
+  - Enhanced with LLM features for better predictions
+  - Routes failures to appropriate learning system (analytical → ML, emotional → AI)
 - **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources
   - Includes 27 news sources from reputable financial outlets
   - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
@@ -115,6 +132,12 @@ Set the following environment variables:
 - `GROQ_ENFORCE_LIMITS`: Enforce rate limits (default: true, set to false to disable all limits)
 - `PSYCHOLOGY_ANALYSIS_ENABLED`: Enable market psychology analysis (default: true)
 - `PSYCHOLOGY_IRRATIONALITY_THRESHOLD`: Threshold for applying psychology adjustments (default: 0.6)
+- `KELLY_CRITERION_ENABLED`: Enable Kelly Criterion position sizing (default: true)
+- `KELLY_FRACTION`: Kelly fraction for safety (default: 0.5 for half-Kelly)
+- `REGIME_DETECTION_ENABLED`: Enable market regime detection (default: true)
+- `CORRELATION_FILTER_ENABLED`: Enable correlation-based trade filtering (default: true)
+- `MAX_CORRELATION_EXPOSURE`: Maximum correlation exposure multiplier (default: 2.0)
+- `SHARPE_TRACKING_ENABLED`: Enable Sharpe ratio tracking and optimization (default: true)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
 - `BROKER_API_KEY`: Your forex broker API key (optional, for automated trading)
