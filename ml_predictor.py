@@ -150,7 +150,8 @@ class MLTradingPredictor:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")
             return None, None
         
-        logger.info(f"Training on {len(X)} trades ({sum(y)} wins, {logic_driven_count} logic losses, {news_driven_count} news-driven excluded)")
+        wins_count = len(X) - logic_driven_count
+        logger.info(f"Training on {len(X)} trades ({wins_count} wins, {logic_driven_count} logic losses, {news_driven_count} news-driven excluded)")
         
         return np.array(X), np.array(y)
     

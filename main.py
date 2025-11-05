@@ -1630,14 +1630,22 @@ def _symbol_has_prices(yf_symbol: str) -> bool:
     except Exception:
         return False
 
-def detect_news_driven_failure(trade, current_market_data):
+def detect_news_driven_failure(trade, current_market_data, current_time=None):
     """
     Detect if a trade failure was likely caused by news events rather than logic errors.
+    
+    Args:
+        trade: Trade dictionary with entry conditions
+        current_market_data: Current market conditions
+        current_time: Optional datetime for testing (defaults to now)
     
     Returns: (is_news_driven, reason)
     - is_news_driven: True if failure likely caused by news/external events
     - reason: String explanation of the determination
     """
+    if current_time is None:
+        current_time = datetime.now()
+    
     # Get entry conditions
     entry_volatility = trade.get('entry_volatility', 0.01)
     entry_atr_pct = trade.get('entry_atr_pct', 0.005)
@@ -1662,7 +1670,7 @@ def detect_news_driven_failure(trade, current_market_data):
     # 3. Check if trade was stopped out very quickly (within 2 hours)
     # This suggests a sudden market event rather than gradual technical failure
     trade_time = datetime.fromisoformat(trade['timestamp'])
-    time_elapsed = (datetime.now() - trade_time).total_seconds() / 3600
+    time_elapsed = (current_time - trade_time).total_seconds() / 3600
     if time_elapsed < 2:
         # Quick stop-out with high volatility suggests news event
         if exit_volatility > 0.015:
@@ -1782,11 +1790,13 @@ def evaluate_trades():
                 hourly_returns = close.pct_change().dropna()
                 current_volatility = hourly_returns.tail(10).std() if len(hourly_returns) >= 10 else 0.01
                 
-                # Calculate current ATR
-                tr = []
-                for i in range(1, len(high)):
-                    tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
-                current_atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
+                # Calculate current ATR using pandas for efficiency
+                tr1 = high - low
+                tr2 = (high - close.shift()).abs()
+                tr3 = (low - close.shift()).abs()
+                import pandas as pd
+                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                current_atr = tr.tail(14).mean() if len(tr) >= 14 else 0
                 current_atr_pct = current_atr / current_price if current_price > 0 else 0.005
                 
                 current_market_data = {
