@@ -9,14 +9,38 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
   - Web sources: Forex Factory, DailyFX, Investing.com, FXStreet, ForexLive, and others
 - **Sentiment Analysis**: Uses TextBlob to analyze news sentiment, with boosts for central bank and economic data sources
-- **Technical Analysis**: Incorporates Ichimoku Cloud, volume analysis, Fair Value Gaps (FVG), and candlestick patterns optimized for forex, commodities, and indices markets
+- **Technical Analysis**: Uses 7 essential indicators with additive scoring system:
+  - RSI (Relative Strength Index) - 15% weight
+  - MACD (Moving Average Convergence Divergence) - 15% weight
+  - Bollinger Bands - 10% weight
+  - EMA Trend (50 vs 200) - 25% weight (highest importance)
+  - VWAP (Volume Weighted Average Price) - 15% weight
+  - ADX (Average Directional Index) - 15% weight
+  - Parabolic SAR - 5% weight
+- **Correlation Analysis**: Filters highly correlated pairs to reduce portfolio risk
+- **Economic Calendar**: Detects high-impact events and adjusts leverage accordingly
+- **Execution Cost Modeling**: Accounts for spreads (1 pip) and slippage (0.5 pip) in forex trades
+- **Conservative Risk Management**: 
+  - Minimum 10 pip stop loss (0.1%)
+  - Maximum 20x leverage (reduced from 100x)
+  - Spreads and slippage automatically deducted from expected returns
 - **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
 - **Automated Trading**: Integrates with forex broker APIs for automatic trade execution
-- **Risk Management**: Calculates optimal stop losses, leverage, and risk-reward ratios for forex, commodities, and indices trading
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
 - **Telegram Notifications**: Sends trade recommendations via Telegram (optional)
 - **Adaptive Learning**: Evaluates past trades and adjusts indicator weights for improved performance
 - **Low Money Mode**: Optimized settings for smaller trading accounts
+
+## Recent Improvements
+
+### v2.1 - Critical Safety Updates
+- ✅ **Stop Loss Fix**: Increased from 2 pips to 10 pips minimum (accounts for spreads)
+- ✅ **Leverage Reduction**: Reduced from 100x to 20x maximum for safety
+- ✅ **Weight System**: Replaced multiplicative weights with additive scoring (sum to 1.0)
+- ✅ **Execution Costs**: Added spread (0.01%) and slippage (0.005%) modeling
+- ✅ **Indicator Cleanup**: Removed redundant indicators (Stochastic, CCI, Williams %R, OBV, Hurst)
+- ✅ **Correlation Filter**: Avoid trading highly correlated pairs (>70% correlation)
+- ✅ **Economic Calendar**: Detects high-impact events and reduces leverage by 50%
 
 ## Requirements
 
@@ -78,8 +102,11 @@ Set the following environment variables:
 Edit the constants in `main.py` to customize:
 
 - `LOW_MONEY_MODE`: Set to `True` for smaller accounts (< $500)
-- `MAX_LEVERAGE_CRYPTO`: Maximum leverage for crypto trades
-- Risk parameters: `MIN_STOP_PCT`, `EXPECTED_RETURN_PER_SENTIMENT`, etc.
+- `MAX_LEVERAGE_FOREX`: Maximum leverage for forex trades (default: 20x)
+- `MIN_STOP_PCT`: Minimum stop loss percentage (default: 0.1% or 10 pips)
+- `CORRELATION_THRESHOLD`: Maximum correlation between pairs (default: 0.7)
+- Risk parameters: `EXPECTED_RETURN_PER_SENTIMENT`, `FOREX_SPREAD_PCT`, `FOREX_SLIPPAGE_PCT`, etc.
+- Indicator weights in `WEIGHTS` dictionary (must sum to 1.0)
 
 ## Usage
 
@@ -107,8 +134,10 @@ The bot outputs recommended trades in the console and via Telegram, including:
 - Symbol and direction (LONG/SHORT)
 - Entry price
 - Stop loss and take profit levels
-- Recommended leverage
+- Recommended leverage (max 20x for forex)
 - Risk-reward ratio
+- Indicator alignment score (0.0 to 1.0)
+- Execution cost adjustments (spread + slippage)
 
 ## Files
 

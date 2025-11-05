@@ -416,6 +416,94 @@ MARKET_SESSIONS = [
     ('New York', 13.5, 20),  # 13:30 to 20:00
 ]
 
+# Correlation analysis settings
+CORRELATION_THRESHOLD = 0.7  # Avoid highly correlated pairs (>70% correlation)
+CORRELATION_PERIOD_DAYS = 30  # Look back 30 days for correlation
+
+# Economic calendar high-impact keywords (filter trades during major events)
+HIGH_IMPACT_KEYWORDS = [
+    'FOMC', 'Federal Reserve', 'interest rate decision', 'NFP', 'non-farm payroll',
+    'CPI', 'inflation report', 'GDP', 'ECB meeting', 'central bank meeting',
+    'employment report', 'jobs report', 'rate hike', 'rate cut', 'QE', 
+    'quantitative easing', 'emergency meeting', 'crisis', 'bank failure'
+]
+
+def has_high_impact_event(news_articles):
+    """Check if there are high-impact economic events in recent news."""
+    for article in news_articles:
+        title = (article.get('title') or '').upper()
+        desc = (article.get('description') or '').upper()
+        text = f"{title} {desc}"
+        
+        for keyword in HIGH_IMPACT_KEYWORDS:
+            if keyword.upper() in text:
+                print(f"⚠️  HIGH IMPACT EVENT DETECTED: {keyword} - Trade with caution!")
+                return True
+    return False
+
+def calculate_correlation(symbol1_yf, symbol2_yf, days=30):
+    """Calculate correlation between two currency pairs."""
+    try:
+        import pandas as pd
+        import numpy as np
+        
+        ticker1 = yf.Ticker(symbol1_yf)
+        ticker2 = yf.Ticker(symbol2_yf)
+        
+        hist1 = ticker1.history(period=f'{days}d', interval='1d')
+        hist2 = ticker2.history(period=f'{days}d', interval='1d')
+        
+        if hist1.empty or hist2.empty or len(hist1) < 10 or len(hist2) < 10:
+            return None
+        
+        # Get returns for both
+        returns1 = hist1['Close'].pct_change().dropna()
+        returns2 = hist2['Close'].pct_change().dropna()
+        
+        # Align the indices
+        df = pd.DataFrame({'r1': returns1, 'r2': returns2}).dropna()
+        
+        if len(df) < 10:
+            return None
+        
+        # Calculate correlation
+        correlation = df['r1'].corr(df['r2'])
+        return float(correlation)
+    except Exception as e:
+        print(f"Error calculating correlation between {symbol1_yf} and {symbol2_yf}: {e}")
+        return None
+
+def filter_correlated_pairs(results):
+    """Filter out highly correlated pairs to reduce portfolio risk."""
+    if len(results) <= 1:
+        return results
+    
+    filtered = []
+    seen_symbols = []
+    
+    for result in results:
+        symbol = result['symbol']
+        yf_symbol = result['yf_symbol']
+        
+        # Check correlation with already selected symbols
+        is_correlated = False
+        for seen_symbol, seen_yf in seen_symbols:
+            corr = calculate_correlation(yf_symbol, seen_yf, CORRELATION_PERIOD_DAYS)
+            if corr is not None and abs(corr) > CORRELATION_THRESHOLD:
+                print(f"Skipping {symbol} due to high correlation ({corr:.2f}) with {seen_symbol}")
+                is_correlated = True
+                break
+        
+        if not is_correlated:
+            filtered.append(result)
+            seen_symbols.append((symbol, yf_symbol))
+            
+            # Limit to top 5 uncorrelated pairs to manage risk
+            if len(filtered) >= 5:
+                break
+    
+    return filtered
+
 def get_current_market_session():
     """Return the current market session name or 'Off-hours' if none."""
     now = datetime.now(timezone.utc)
@@ -1960,6 +2048,15 @@ def main(backtest_only=False):
     
     print('Forex, Commodities & Indices News Trading Bot v2.0 - Fetching latest signals (1h timeframe)...')
     articles = get_news()
+    
+    # Check for high-impact economic events
+    high_impact_detected = has_high_impact_event(articles)
+    if high_impact_detected and not backtest_only:
+        print("⚠️  HIGH IMPACT EVENT - Reducing position sizes and tightening stops")
+        # Reduce leverage during high-impact events
+        global MAX_LEVERAGE_FOREX
+        MAX_LEVERAGE_FOREX = int(MAX_LEVERAGE_FOREX * 0.5)  # Half leverage during events
+        print(f"Temporary leverage reduced to {MAX_LEVERAGE_FOREX}x for safety")
 
     # Initialize with default symbols (news optional)
     symbol_articles = {}
@@ -2062,6 +2159,11 @@ def main(backtest_only=False):
 
     # sort by quality: rr then news_count
     results.sort(key=lambda r: (r['rr'], r['news_count']), reverse=True)
+    
+    # Filter highly correlated pairs to reduce portfolio risk
+    print(f"\nFiltering {len(results)} results for correlation...")
+    results = filter_correlated_pairs(results)
+    print(f"After correlation filter: {len(results)} uncorrelated trades selected")
 
     # Evaluate and learn every run
     evaluate_trades()
