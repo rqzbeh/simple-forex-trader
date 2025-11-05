@@ -5,6 +5,7 @@ import re
 import json
 import requests
 import logging
+import sys
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from newsapi import NewsApiClient
@@ -351,38 +352,53 @@ DEFAULT_SYMBOLS = [
     ('NDX', 'QQQ', 'stock'),      # Nasdaq
 ]
 
-# Risk settings (optimized for 1h fast forex trading)
-MIN_STOP_PCT = 0.001  # 0.1% minimal stop for 1h
-EXPECTED_RETURN_PER_SENTIMENT = 0.004  # 0.4% per full +1.0 sentiment for 1h (increased for longer timeframe)
-NEWS_COUNT_BONUS = 0.001  # 0.1% per article bonus
-MAX_NEWS_BONUS = 0.004  # Max 0.4%
+# Risk settings (optimized for maximum profit with minimum risk)
+MIN_STOP_PCT = 0.0003  # 0.03% ultra-tight stops for risk control
+EXPECTED_RETURN_PER_SENTIMENT = 0.006  # 0.6% per sentiment point (higher profit potential)
+NEWS_COUNT_BONUS = 0.002  # 0.2% per article (increased news value)
+MAX_NEWS_BONUS = 0.01  # Max 1% bonus from news
 
-# Leverage caps - Updated to 500x for forex
-MAX_LEVERAGE_FOREX = 500
-MAX_LEVERAGE_STOCK = 5
+# Leverage caps - Optimized for profit maximization
+MAX_LEVERAGE_FOREX = 100  # Further reduced for safety while maintaining profit potential
+MAX_LEVERAGE_STOCK = 3    # Conservative for stocks
 
 # Low money mode flag - Set to True for accounts with small capital (< $500 equivalent)
 LOW_MONEY_MODE = True
 
 if LOW_MONEY_MODE:
-    EXPECTED_RETURN_PER_SENTIMENT = 0.006  # Higher ROI to offset fees
-    NEWS_COUNT_BONUS = 0.002  # Increased bonus
-    MAX_NEWS_BONUS = 0.008  # Higher max bonus
-    MIN_STOP_PCT = 0.0005  # Tighter stops for better R/R
+    EXPECTED_RETURN_PER_SENTIMENT = 0.008  # 0.8% - Higher ROI to offset fees
+    NEWS_COUNT_BONUS = 0.003  # 0.3% - Increased news impact
+    MAX_NEWS_BONUS = 0.015  # 1.5% - Higher max bonus
+    MIN_STOP_PCT = 0.0002  # 0.02% - Ultra-tight stops
 
-# Daily risk limit (1% max loss per day)
-DAILY_RISK_LIMIT = 0.01  # 1%
+# Daily risk limit (1% for better profit potential with controlled risk)
+DAILY_RISK_LIMIT = 0.01  # 1% max loss per day (increased for higher RR trades)
 DAILY_RISK_FILE = 'daily_risk.json'
 
 # Trade logging file
 TRADE_LOG_FILE = 'trade_log.json'
 
+# Backtesting configuration
+BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
+BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
+BACKTEST_ADJUST_THRESHOLD = 0.66  # Stricter win rate threshold (66%) for adjustments
+BACKTEST_TEST_MODE = False  # Use fake data for testing (set to False for real backtesting)
+
 # Indicator weights (adaptive learning)
-ICHIMOKU_WEIGHT = 1.2
-VOLUME_WEIGHT = 1.15
+RSI_WEIGHT = 1.2
+MACD_WEIGHT = 1.15
+BB_WEIGHT = 1.1
+TREND_WEIGHT = 1.3
+ADVANCED_CANDLE_WEIGHT = 1.1
+OBV_WEIGHT = 1.15
 FVG_WEIGHT = 1.1
-CANDLE_WEIGHT = 1.1
-NEW_TECHNIQUE_ENABLED = False  # Placeholder for adding new techniques
+VWAP_WEIGHT = 1.6
+STOCH_WEIGHT = 1.5
+CCI_WEIGHT = 1.4
+HURST_WEIGHT = 1.3
+ADX_WEIGHT = 1.5
+WILLIAMS_R_WEIGHT = 1.4
+SAR_WEIGHT = 1.35
 
 # Market sessions (UTC, Monday-Friday)
 MARKET_SESSIONS = [
@@ -580,48 +596,145 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
         # Psychological levels: round to nearest 0.01 for forex/commodities (e.g., 1.05 for EURUSD)
         psych_level = round(current_price * 100) / 100
 
-        # Candle patterns: simple bullish/bearish signal from last 3 candles
-        candle_signal = 0  # -1 bearish, 0 neutral, 1 bullish
-        if len(close) >= 3:
-            last3 = close.tail(3).values
-            if last3[2] > last3[1] > last3[0]:  # Rising
-                candle_signal = 1
-            elif last3[2] < last3[1] < last3[0]:  # Falling
-                candle_signal = -1
+        # RSI
+        if len(close) >= 14:
+            delta = close.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            rsi_signal = 1 if rsi.iloc[-1] < 30 else -1 if rsi.iloc[-1] > 70 else 0
+        else:
+            rsi_signal = 0
 
-        # Ichimoku Cloud
-        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        senkou_a = ((tenkan + kijun) / 2).shift(26)
-        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-        chikou = close.shift(-26)
-        ichimoku_signal = 0  # 1 bullish, -1 bearish
-        if (current_price > senkou_a.iloc[-1] and current_price > senkou_b.iloc[-1] and 
-            tenkan.iloc[-1] > kijun.iloc[-1] and senkou_a.iloc[-1] > senkou_b.iloc[-1]):
-            ichimoku_signal = 1
-        elif (current_price < senkou_a.iloc[-1] and current_price < senkou_b.iloc[-1] and 
-              tenkan.iloc[-1] < kijun.iloc[-1] and senkou_a.iloc[-1] < senkou_b.iloc[-1]):
-            ichimoku_signal = -1
+        # MACD
+        if len(close) >= 26:
+            ema12 = close.ewm(span=12).mean()
+            ema26 = close.ewm(span=26).mean()
+            macd_line = ema12 - ema26
+            signal_line = macd_line.ewm(span=9).mean()
+            macd_signal = 1 if macd_line.iloc[-1] > signal_line.iloc[-1] else -1
+        else:
+            macd_signal = 0
 
-        # Smart Money: Volume confirmation (institutional order flow)
-        volume_avg = volume.tail(20).mean()
-        recent_volume = volume.iloc[-1]
-        volume_signal = 0  # 1 smart money buying, -1 smart money selling
-        if recent_volume > volume_avg * 1.2:
-            if close.iloc[-1] > close.iloc[-2]:
-                volume_signal = 1
-            elif close.iloc[-1] < close.iloc[-2]:
-                volume_signal = -1
+        # Bollinger Bands
+        if len(close) >= 20:
+            sma20 = close.rolling(window=20).mean()
+            std20 = close.rolling(window=20).std()
+            upper_bb = sma20 + 2 * std20
+            lower_bb = sma20 - 2 * std20
+            bb_signal = 1 if close.iloc[-1] < lower_bb.iloc[-1] else -1 if close.iloc[-1] > upper_bb.iloc[-1] else 0
+        else:
+            bb_signal = 0
 
-        # ICT: Fair Value Gap (FVG) detection - simple version
-        fvg_signal = 0  # 1 bullish FVG, -1 bearish FVG
-        if len(close) >= 4:
-            # Bullish FVG: low of current > high of 2 candles ago
-            if low.iloc[-1] > high.iloc[-3]:
-                fvg_signal = 1
-            # Bearish FVG: high of current < low of 2 candles ago
-            elif high.iloc[-1] < low.iloc[-3]:
-                fvg_signal = -1
+        # Trend (EMA50 vs EMA200)
+        if len(close) >= 200:
+            ema50 = close.ewm(span=50).mean()
+            ema200 = close.ewm(span=200).mean()
+            trend_signal = 1 if ema50.iloc[-1] > ema200.iloc[-1] else -1
+        else:
+            trend_signal = 0
+
+        # Advanced candle patterns
+        advanced_candle_signal = 0
+        if len(close) >= 2:
+            prev_high = high.iloc[-2]
+            prev_low = low.iloc[-2]
+            prev_open = hist_hourly['Open'].iloc[-2]
+            prev_close = close.iloc[-2]
+            curr_high = high.iloc[-1]
+            curr_low = low.iloc[-1]
+            curr_open = hist_hourly['Open'].iloc[-1]
+            curr_close = close.iloc[-1]
+            # Bullish engulfing
+            if prev_close < prev_open and curr_close > curr_open and curr_close >= prev_open and curr_open <= prev_close:
+                advanced_candle_signal = 1
+            # Bearish engulfing
+            elif prev_close > prev_open and curr_close < curr_open and curr_close <= prev_open and curr_open >= prev_close:
+                advanced_candle_signal = -1
+            # Hammer (simplified)
+            elif (min(curr_open, curr_close) - curr_low) > 2 * abs(curr_close - curr_open) and (curr_high - max(curr_open, curr_close)) < abs(curr_close - curr_open):
+                advanced_candle_signal = 1  # Bullish hammer
+
+        # Better FVG detection: look for imbalances in last 10 candles
+        fvg_signal = 0
+        if len(close) >= 10:
+            for i in range(-10, -1):
+                if low.iloc[i] > high.iloc[i+2]:
+                    fvg_signal = 1  # Bullish FVG
+                    break
+                elif high.iloc[i] < low.iloc[i+2]:
+                    fvg_signal = -1  # Bearish FVG
+                    break
+
+        # Volume: OBV-like
+        if len(volume) >= 2:
+            obv = [0]
+            for i in range(1, len(close)):
+                if close.iloc[i] > close.iloc[i-1]:
+                    obv.append(obv[-1] + volume.iloc[i])
+                elif close.iloc[i] < close.iloc[i-1]:
+                    obv.append(obv[-1] - volume.iloc[i])
+                else:
+                    obv.append(obv[-1])
+            obv_signal = 1 if obv[-1] > obv[-2] else -1
+        else:
+            obv_signal = 0
+
+        # VWAP
+        if len(close) >= 2 and volume.sum() > 0:
+            vwap = (close * volume).cumsum() / volume.cumsum()
+            vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
+        else:
+            vwap_signal = 0
+
+        # Stochastic Oscillator
+        if len(close) >= 14:
+            lowest_low = low.rolling(window=14).min()
+            highest_high = high.rolling(window=14).max()
+            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+            stoch_d = stoch_k.rolling(window=3).mean()
+            stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
+        else:
+            stoch_signal = 0
+
+        # CCI (Commodity Channel Index)
+        if len(close) >= 20:
+            typical_price = (high + low + close) / 3
+            sma_tp = typical_price.rolling(window=20).mean()
+            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
+            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
+            cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
+        else:
+            cci_signal = 0
+        
+        # Hurst Exponent
+        if len(close) >= 40:
+            hurst = calculate_hurst_exponent(close, max_lag=20)
+            hurst_signal = 1 if hurst > 0.6 else -1 if hurst < 0.4 else 0
+        else:
+            hurst_signal = 0
+        
+        # ADX (Average Directional Index)
+        if len(close) >= 30:
+            adx_value = calculate_adx(high, low, close, period=14)
+            adx_signal = 1 if adx_value > 25 else -1 if adx_value < 20 else 0  # Strong trend vs weak/range
+        else:
+            adx_signal = 0
+        
+        # Williams %R
+        if len(close) >= 14:
+            williams_r = calculate_williams_r(high, low, close, period=14)
+            williams_r_signal = 1 if williams_r < -80 else -1 if williams_r > -20 else 0
+        else:
+            williams_r_signal = 0
+        
+        # Parabolic SAR
+        if len(close) >= 2:
+            sar = calculate_parabolic_sar(high, low, close)
+            sar_signal = 1 if close.iloc[-1] > sar else -1  # Above SAR = bullish, below = bearish
+        else:
+            sar_signal = 0
 
         return {
             'price': current_price,
@@ -633,10 +746,20 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
             'support': float(recent_low),
             'resistance': float(recent_high),
             'psych_level': float(psych_level),
-            'candle_signal': candle_signal,
-            'ichimoku_signal': ichimoku_signal,
-            'volume_signal': volume_signal,
-            'fvg_signal': fvg_signal
+            'rsi_signal': rsi_signal,
+            'macd_signal': macd_signal,
+            'bb_signal': bb_signal,
+            'trend_signal': trend_signal,
+            'advanced_candle_signal': advanced_candle_signal,
+            'obv_signal': obv_signal,
+            'fvg_signal': fvg_signal,
+            'vwap_signal': vwap_signal,
+            'stoch_signal': stoch_signal,
+            'cci_signal': cci_signal,
+            'hurst_signal': hurst_signal,
+            'adx_signal': adx_signal,
+            'williams_r_signal': williams_r_signal,
+            'sar_signal': sar_signal
         }
     except Exception as e:
         # Suppress yfinance errors for cleaner output
@@ -668,10 +791,20 @@ def _get_alpha_vantage_data(yf_symbol):
             'support': current_price * 0.98,
             'resistance': current_price * 1.02,
             'psych_level': round(current_price),
-            'candle_signal': 0,
-            'ichimoku_signal': 0,
-            'volume_signal': 0,
-            'fvg_signal': 0
+            'rsi_signal': 0,
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': 0,
+            'vwap_signal': 0,
+            'stoch_signal': 0,
+            'cci_signal': 0,
+            'hurst_signal': 0,
+            'adx_signal': 0,
+            'williams_r_signal': 0,
+            'sar_signal': 0
         }
     except Exception as e:
         print(f'Alpha Vantage fetch error for {yf_symbol}: {e}')
@@ -697,10 +830,20 @@ def _get_iex_data(yf_symbol):
             'support': current_price * 0.98,
             'resistance': current_price * 1.02,
             'psych_level': round(current_price),
-            'candle_signal': 0,
-            'ichimoku_signal': 0,
-            'volume_signal': 0,
-            'fvg_signal': 0
+            'rsi_signal': 0,
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': 0,
+            'vwap_signal': 0,
+            'stoch_signal': 0,
+            'cci_signal': 0,
+            'hurst_signal': 0,
+            'adx_signal': 0,
+            'williams_r_signal': 0,
+            'sar_signal': 0
         }
     except Exception as e:
         print(f'IEX Cloud fetch error for {yf_symbol}: {e}')
@@ -799,6 +942,33 @@ def _get_polygon_data(yf_symbol):
             elif high.iloc[-1] < low.iloc[-3]:
                 fvg_signal = -1
 
+        # VWAP
+        if len(close) >= 2 and volume.sum() > 0:
+            vwap = (close * volume).cumsum() / volume.cumsum()
+            vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
+        else:
+            vwap_signal = 0
+
+        # Stochastic Oscillator
+        if len(close) >= 14:
+            lowest_low = low.rolling(window=14).min()
+            highest_high = high.rolling(window=14).max()
+            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+            stoch_d = stoch_k.rolling(window=3).mean()
+            stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
+        else:
+            stoch_signal = 0
+
+        # CCI
+        if len(close) >= 20:
+            typical_price = (high + low + close) / 3
+            sma_tp = typical_price.rolling(window=20).mean()
+            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
+            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
+            cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
+        else:
+            cci_signal = 0
+
         return {
             'price': current_price,
             'volatility_hourly': float(vol_hourly),
@@ -809,10 +979,16 @@ def _get_polygon_data(yf_symbol):
             'support': float(recent_low),
             'resistance': float(recent_high),
             'psych_level': float(psych_level),
-            'candle_signal': candle_signal,
-            'ichimoku_signal': ichimoku_signal,
-            'volume_signal': volume_signal,
-            'fvg_signal': fvg_signal
+            'rsi_signal': 0,  # Placeholder for polygon
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': fvg_signal,
+            'vwap_signal': vwap_signal,
+            'stoch_signal': stoch_signal,
+            'cci_signal': cci_signal
         }
     except Exception as e:
         print(f'Polygon fetch error for {yf_symbol}: {e}')
@@ -913,6 +1089,33 @@ def _get_twelvedata_data(yf_symbol):
             elif high.iloc[0] < low.iloc[2]:
                 fvg_signal = -1
 
+        # VWAP
+        if len(close) >= 2 and volume.sum() > 0:
+            vwap = (close * volume).cumsum() / volume.cumsum()
+            vwap_signal = 1 if close.iloc[0] > vwap.iloc[0] else -1
+        else:
+            vwap_signal = 0
+
+        # Stochastic Oscillator
+        if len(close) >= 14:
+            lowest_low = low.rolling(window=14).min()
+            highest_high = high.rolling(window=14).max()
+            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+            stoch_d = stoch_k.rolling(window=3).mean()
+            stoch_signal = 1 if stoch_k.iloc[0] < 20 else -1 if stoch_k.iloc[0] > 80 else 0
+        else:
+            stoch_signal = 0
+
+        # CCI
+        if len(close) >= 20:
+            typical_price = (high + low + close) / 3
+            sma_tp = typical_price.rolling(window=20).mean()
+            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
+            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
+            cci_signal = 1 if cci.iloc[0] < -100 else -1 if cci.iloc[0] > 100 else 0
+        else:
+            cci_signal = 0
+
         return {
             'price': current_price,
             'volatility_hourly': float(vol_hourly),
@@ -923,10 +1126,16 @@ def _get_twelvedata_data(yf_symbol):
             'support': float(recent_low),
             'resistance': float(recent_high),
             'psych_level': float(psych_level),
-            'candle_signal': candle_signal,
-            'ichimoku_signal': ichimoku_signal,
-            'volume_signal': volume_signal,
-            'fvg_signal': fvg_signal
+            'rsi_signal': 0,  # Placeholder
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': fvg_signal,
+            'vwap_signal': vwap_signal,
+            'stoch_signal': stoch_signal,
+            'cci_signal': cci_signal
         }
     except Exception as e:
         print(f'Twelve Data fetch error for {yf_symbol}: {e}')
@@ -955,10 +1164,16 @@ def _get_fmp_data(yf_symbol):
             'support': price * 0.98,
             'resistance': price * 1.02,
             'psych_level': round(price * 100) / 100,
-            'candle_signal': 0,
-            'ichimoku_signal': 0,
-            'volume_signal': 0,
-            'fvg_signal': 0
+            'rsi_signal': 0,
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': 0,
+            'vwap_signal': 0,
+            'stoch_signal': 0,
+            'cci_signal': 0
         }
     except Exception as e:
         print(f'FMP fetch error for {yf_symbol}: {e}')
@@ -984,10 +1199,16 @@ def _get_quandl_data(yf_symbol):
             'support': 98.0,
             'resistance': 102.0,
             'psych_level': 100.0,
-            'candle_signal': 0,
-            'ichimoku_signal': 0,
-            'volume_signal': 0,
-            'fvg_signal': 0
+            'rsi_signal': 0,
+            'macd_signal': 0,
+            'bb_signal': 0,
+            'trend_signal': 0,
+            'advanced_candle_signal': 0,
+            'obv_signal': 0,
+            'fvg_signal': 0,
+            'vwap_signal': 0,
+            'stoch_signal': 0,
+            'cci_signal': 0
         }
     except Exception as e:
         print(f'Quandl fetch error for {yf_symbol}: {e}')
@@ -1007,25 +1228,161 @@ def _get_fred_data(yf_symbol):
         print(f'FRED fetch error for {yf_symbol}: {e}')
         return None
 
-def recommend_leverage(rr, volatility, kind='crypto'):
+def calculate_hurst_exponent(price_series, max_lag=20):
+    """Calculate Hurst exponent for trend persistence."""
+    if len(price_series) < max_lag * 2:
+        return 0.5  # Neutral
+    
+    lags = range(2, min(max_lag, len(price_series)//2))
+    tau = []
+    
+    for lag in lags:
+        # Calculate rescaled range
+        diff = price_series.diff().dropna()
+        mean = diff.mean()
+        std = diff.std()
+        if std == 0:
+            continue
+        z_score = (diff - mean) / std
+        r = z_score.rolling(window=lag).apply(lambda x: x.max() - x.min())
+        s = z_score.rolling(window=lag).std()
+        rs = (r / s).mean()
+        tau.append(rs)
+    
+    if len(tau) < 2:
+        return 0.5
+    
+    # Fit line to log-log plot
+    import numpy as np
+    log_lags = np.log(lags[:len(tau)])
+    log_tau = np.log(tau)
+    
+    try:
+        slope = np.polyfit(log_lags, log_tau, 1)[0]
+        hurst = slope / 2
+        return max(0, min(1, hurst))  # Clamp to [0,1]
+    except:
+        return 0.5
+
+def calculate_adx(high, low, close, period=14):
+    """Calculate Average Directional Index (ADX) for trend strength."""
+    import pandas as pd
+    import numpy as np
+    
+    if len(high) < period + 1:
+        return 0
+    
+    # True Range
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # Directional Movement
+    dm_plus = high - high.shift(1)
+    dm_minus = low.shift(1) - low
+    
+    # Only count positive movements
+    dm_plus = dm_plus.where((dm_plus > dm_minus) & (dm_plus > 0), 0)
+    dm_minus = dm_minus.where((dm_minus > dm_plus) & (dm_minus > 0), 0)
+    
+    # Smoothed averages
+    atr = tr.rolling(window=period).mean()
+    di_plus = 100 * (dm_plus.rolling(window=period).mean() / atr)
+    di_minus = 100 * (dm_minus.rolling(window=period).mean() / atr)
+    
+    # Directional Index
+    dx = 100 * abs(di_plus - di_minus) / (di_plus + di_minus)
+    dx = dx.replace([np.inf, -np.inf], 0).fillna(0)
+    
+    # ADX
+    adx = dx.rolling(window=period).mean()
+    
+    return adx.iloc[-1] if len(adx) > 0 else 0
+
+def calculate_williams_r(high, low, close, period=14):
+    """Calculate Williams %R oscillator."""
+    if len(high) < period:
+        return 0
+    
+    highest_high = high.rolling(window=period).max()
+    lowest_low = low.rolling(window=period).min()
+    
+    williams_r = -100 * (highest_high - close) / (highest_high - lowest_low)
+    return williams_r.iloc[-1] if len(williams_r) > 0 else 0
+
+def calculate_parabolic_sar(high, low, close, acceleration=0.02, max_acceleration=0.2):
+    """Calculate Parabolic SAR."""
+    if len(close) < 2:
+        return close.iloc[-1] if len(close) > 0 else 0
+    
+    sar = [close.iloc[0]]  # Start with first close
+    trend = 1  # 1 = uptrend, -1 = downtrend
+    ep = high.iloc[0] if trend == 1 else low.iloc[0]  # Extreme point
+    af = acceleration  # Acceleration factor
+    
+    for i in range(1, len(close)):
+        sar_val = sar[-1] + af * (ep - sar[-1])
+        
+        # Check for trend change
+        if trend == 1:  # Uptrend
+            if low.iloc[i] <= sar_val:
+                trend = -1
+                sar_val = ep  # Set to previous EP
+                ep = low.iloc[i]
+                af = acceleration
+            else:
+                if high.iloc[i] > ep:
+                    ep = high.iloc[i]
+                    af = min(af + acceleration, max_acceleration)
+        else:  # Downtrend
+            if high.iloc[i] >= sar_val:
+                trend = 1
+                sar_val = ep  # Set to previous EP
+                ep = high.iloc[i]
+                af = acceleration
+            else:
+                if low.iloc[i] < ep:
+                    ep = low.iloc[i]
+                    af = min(af + acceleration, max_acceleration)
+        
+        # Ensure SAR doesn't go beyond previous bars
+        if trend == 1:
+            sar_val = min(sar_val, low.iloc[i-1], low.iloc[i])
+        else:
+            sar_val = max(sar_val, high.iloc[i-1], high.iloc[i])
+            
+        sar.append(sar_val)
+    
+    return sar[-1] if len(sar) > 0 else close.iloc[-1]
+
+def recommend_leverage(rr, volatility, kind='forex'):
     '''Recommend leverage given RR and volatility. Returns integer leverage.'''
-    # Base leverage from RR: more RR allows more leverage
-    base = max(1, int(math.floor(rr * 10)))  # Increased multiplier for higher leverage in crypto
+    # Base leverage from RR: higher RR allows higher leverage, but conservative
+    base = max(1, int(math.floor(rr * 2)))  # Reduced multiplier for risk control
     # Cap by asset class
     max_lev = MAX_LEVERAGE_FOREX if kind == 'forex' else MAX_LEVERAGE_STOCK
-    # If volatility is very high, reduce recommended leverage
+
+    # Adjust for volatility (more conservative)
     if volatility is None:
-        volatility = 1.0
-    if volatility > 1.0:  # >100% annualized -> risky
-        max_lev = min(max_lev, 50)  # Adjusted for higher cap
-    if volatility > 2.0:
-        max_lev = min(max_lev, 20)
+        volatility = 0.5  # Assume moderate volatility
+    if volatility > 0.5:  # High volatility -> reduce leverage
+        max_lev = min(max_lev, max_lev * 0.7)
+    if volatility > 1.0:  # Very high volatility -> significantly reduce
+        max_lev = min(max_lev, max_lev * 0.4)
+
+    # Boost leverage for high RR trades (reduced boost for risk control)
+    if rr >= 3:
+        base = int(base * 1.2)
+    elif rr >= 2:
+        base = int(base * 1.1)
+
     lev = min(base, max_lev)
     return max(1, lev)
 
 def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     '''Return dict with direction, expected_profit_pct, stop_pct, rr, recommended_leverage.'''
-    global ICHIMOKU_WEIGHT, VOLUME_WEIGHT, FVG_WEIGHT, CANDLE_WEIGHT
+    global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
     if not market_data:
         return None
     price = market_data['price']
@@ -1037,10 +1394,20 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     support = market_data['support']
     resistance = market_data['resistance']
     psych_level = market_data['psych_level']
-    candle_signal = market_data['candle_signal']
-    ichimoku_signal = market_data['ichimoku_signal']
-    volume_signal = market_data['volume_signal']
+    rsi_signal = market_data['rsi_signal']
+    macd_signal = market_data['macd_signal']
+    bb_signal = market_data['bb_signal']
+    trend_signal = market_data['trend_signal']
+    advanced_candle_signal = market_data['advanced_candle_signal']
+    obv_signal = market_data['obv_signal']
     fvg_signal = market_data['fvg_signal']
+    vwap_signal = market_data['vwap_signal']
+    stoch_signal = market_data['stoch_signal']
+    cci_signal = market_data['cci_signal']
+    hurst_signal = market_data.get('hurst_signal', 0)
+    adx_signal = market_data.get('adx_signal', 0)
+    williams_r_signal = market_data.get('williams_r_signal', 0)
+    sar_signal = market_data.get('sar_signal', 0)
 
     # sentiment-driven expected move
     news_bonus = min(MAX_NEWS_BONUS, NEWS_COUNT_BONUS * news_count)
@@ -1058,31 +1425,89 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     if abs(price - psych_level) / price < 0.01:
         expected_return *= 1.1
 
-    # Candle confirmation: boost if matches sentiment (using adaptive weight)
-    if (avg_sentiment > 0 and candle_signal > 0) or (avg_sentiment < 0 and candle_signal < 0):
-        expected_return *= CANDLE_WEIGHT
-    elif (avg_sentiment > 0 and candle_signal < 0) or (avg_sentiment < 0 and candle_signal > 0):
-        expected_return *= (2 - CANDLE_WEIGHT)  # Dampen inversely
+    # RSI confirmation: oversold for long, overbought for short
+    if (avg_sentiment > 0 and rsi_signal > 0) or (avg_sentiment < 0 and rsi_signal < 0):
+        expected_return *= RSI_WEIGHT
+    elif (avg_sentiment > 0 and rsi_signal < 0) or (avg_sentiment < 0 and rsi_signal > 0):
+        expected_return *= (2 - RSI_WEIGHT)
 
-    # Ichimoku confirmation: boost if matches sentiment
-    if (avg_sentiment > 0 and ichimoku_signal > 0) or (avg_sentiment < 0 and ichimoku_signal < 0):
-        expected_return *= ICHIMOKU_WEIGHT
-    elif (avg_sentiment > 0 and ichimoku_signal < 0) or (avg_sentiment < 0 and ichimoku_signal > 0):
-        expected_return *= (2 - ICHIMOKU_WEIGHT)
-    elif ichimoku_signal == 0:
-        expected_return *= 0.95  # slight dampen if Ichimoku neutral
+    # MACD confirmation
+    if (avg_sentiment > 0 and macd_signal > 0) or (avg_sentiment < 0 and macd_signal < 0):
+        expected_return *= MACD_WEIGHT
+    elif (avg_sentiment > 0 and macd_signal < 0) or (avg_sentiment < 0 and macd_signal > 0):
+        expected_return *= (2 - MACD_WEIGHT)
 
-    # Smart Money: Volume confirmation boost
-    if (avg_sentiment > 0 and volume_signal > 0) or (avg_sentiment < 0 and volume_signal < 0):
-        expected_return *= VOLUME_WEIGHT
-    elif (avg_sentiment > 0 and volume_signal < 0) or (avg_sentiment < 0 and volume_signal > 0):
-        expected_return *= (2 - VOLUME_WEIGHT)
+    # Bollinger Bands confirmation
+    if (avg_sentiment > 0 and bb_signal > 0) or (avg_sentiment < 0 and bb_signal < 0):
+        expected_return *= BB_WEIGHT
+    elif (avg_sentiment > 0 and bb_signal < 0) or (avg_sentiment < 0 and bb_signal > 0):
+        expected_return *= (2 - BB_WEIGHT)
 
-    # ICT: FVG confirmation
+    # Trend confirmation (strong weight)
+    if (avg_sentiment > 0 and trend_signal > 0) or (avg_sentiment < 0 and trend_signal < 0):
+        expected_return *= TREND_WEIGHT
+    elif (avg_sentiment > 0 and trend_signal < 0) or (avg_sentiment < 0 and trend_signal > 0):
+        expected_return *= (2 - TREND_WEIGHT)
+
+    # Advanced candle confirmation
+    if (avg_sentiment > 0 and advanced_candle_signal > 0) or (avg_sentiment < 0 and advanced_candle_signal < 0):
+        expected_return *= ADVANCED_CANDLE_WEIGHT
+    elif (avg_sentiment > 0 and advanced_candle_signal < 0) or (avg_sentiment < 0 and advanced_candle_signal > 0):
+        expected_return *= (2 - ADVANCED_CANDLE_WEIGHT)
+
+    # OBV confirmation
+    if (avg_sentiment > 0 and obv_signal > 0) or (avg_sentiment < 0 and obv_signal < 0):
+        expected_return *= OBV_WEIGHT
+    elif (avg_sentiment > 0 and obv_signal < 0) or (avg_sentiment < 0 and obv_signal > 0):
+        expected_return *= (2 - OBV_WEIGHT)
+
+    # FVG confirmation
     if (avg_sentiment > 0 and fvg_signal > 0) or (avg_sentiment < 0 and fvg_signal < 0):
         expected_return *= FVG_WEIGHT
     elif (avg_sentiment > 0 and fvg_signal < 0) or (avg_sentiment < 0 and fvg_signal > 0):
         expected_return *= (2 - FVG_WEIGHT)
+
+    # VWAP confirmation
+    if (avg_sentiment > 0 and vwap_signal > 0) or (avg_sentiment < 0 and vwap_signal < 0):
+        expected_return *= VWAP_WEIGHT
+    elif (avg_sentiment > 0 and vwap_signal < 0) or (avg_sentiment < 0 and vwap_signal > 0):
+        expected_return *= (2 - VWAP_WEIGHT)
+
+    # Stochastic confirmation
+    if (avg_sentiment > 0 and stoch_signal > 0) or (avg_sentiment < 0 and stoch_signal < 0):
+        expected_return *= STOCH_WEIGHT
+    elif (avg_sentiment > 0 and stoch_signal < 0) or (avg_sentiment < 0 and stoch_signal > 0):
+        expected_return *= (2 - STOCH_WEIGHT)
+
+    # CCI confirmation
+    if (avg_sentiment > 0 and cci_signal > 0) or (avg_sentiment < 0 and cci_signal < 0):
+        expected_return *= CCI_WEIGHT
+    elif (avg_sentiment > 0 and cci_signal < 0) or (avg_sentiment < 0 and cci_signal > 0):
+        expected_return *= (2 - CCI_WEIGHT)
+
+    # Hurst confirmation
+    if (avg_sentiment > 0 and hurst_signal > 0) or (avg_sentiment < 0 and hurst_signal < 0):
+        expected_return *= HURST_WEIGHT
+    elif (avg_sentiment > 0 and hurst_signal < 0) or (avg_sentiment < 0 and hurst_signal > 0):
+        expected_return *= (2 - HURST_WEIGHT)
+
+    # ADX confirmation (trend strength)
+    if (avg_sentiment > 0 and adx_signal > 0) or (avg_sentiment < 0 and adx_signal < 0):
+        expected_return *= ADX_WEIGHT
+    elif (avg_sentiment > 0 and adx_signal < 0) or (avg_sentiment < 0 and adx_signal > 0):
+        expected_return *= (2 - ADX_WEIGHT)
+
+    # Williams %R confirmation
+    if (avg_sentiment > 0 and williams_r_signal > 0) or (avg_sentiment < 0 and williams_r_signal < 0):
+        expected_return *= WILLIAMS_R_WEIGHT
+    elif (avg_sentiment > 0 and williams_r_signal < 0) or (avg_sentiment < 0 and williams_r_signal > 0):
+        expected_return *= (2 - WILLIAMS_R_WEIGHT)
+
+    # Parabolic SAR confirmation
+    if (avg_sentiment > 0 and sar_signal > 0) or (avg_sentiment < 0 and sar_signal < 0):
+        expected_return *= SAR_WEIGHT
+    elif (avg_sentiment > 0 and sar_signal < 0) or (avg_sentiment < 0 and sar_signal > 0):
+        expected_return *= (2 - SAR_WEIGHT)
 
     expected_profit_pct = abs(expected_return)
 
@@ -1090,36 +1515,39 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     atr_pct = market_data.get('atr_pct', 0.005)
     # Determine stop loss percent (use ATR for optimized 15m/30m stops, adjusted for forex)
     if kind == 'forex':
-        stop_pct = max(MIN_STOP_PCT, atr_pct * 1.5)  # 1.5x ATR for forex (more volatile)
+        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.5, 0.001))  # Cap at 0.1% for risk control
     else:
-        stop_pct = max(MIN_STOP_PCT, atr_pct * 1.0)  # 1.0x ATR for commodities
+        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.0, 0.001))  # Cap at 0.1% for commodities
 
     if stop_pct <= 0:
         return None
 
     rr = expected_profit_pct / stop_pct if stop_pct > 0 else 0.0
 
-    # Force minimum 2:1 RR for actionable trades (more realistic than 3:1)
+    # Force minimum 2:1 RR for actionable trades (balanced profit/risk)
     if rr < 2 and expected_profit_pct > 0:
         expected_profit_pct = 2 * stop_pct
         rr = 2.0
 
-    # decide direction (relaxed thresholds for more trades on 1h timeframe)
-    direction = 'flat'
-    if expected_return > 0.0005:  # 0.05% for long
-        direction = 'long'
-    elif expected_return < -0.0002:  # -0.02% for short
-        direction = 'short'
+    # Multi-confirmation: count agreeing indicators
+    bullish_signals = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
+    bearish_signals = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
+    total_signals = bullish_signals + bearish_signals
 
-    # For bearish Ichimoku or candle, allow short even if sentiment neutral
-    if direction == 'flat' and ichimoku_signal == -1:
+    # Require at least 3 agreeing signals for trade
+    min_confirmations = 3
+
+    # decide direction based on sentiment and confirmations
+    direction = 'flat'
+    if avg_sentiment > 0.05 and bullish_signals >= min_confirmations:
+        direction = 'long'
+    elif avg_sentiment < -0.05 and bearish_signals >= min_confirmations:
         direction = 'short'
-        expected_return = -0.001  # Set small negative
-        expected_profit_pct = 0.001
-    elif direction == 'flat' and candle_signal == -1 and avg_sentiment < 0.1:
+    # Allow technical-only trades if strong signals
+    elif bullish_signals >= 4:
+        direction = 'long'
+    elif bearish_signals >= 4:
         direction = 'short'
-        expected_return = -0.001
-        expected_profit_pct = 0.001
 
     lev = recommend_leverage(rr, vol, kind=kind)
 
@@ -1138,9 +1566,12 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
         'support': support,
         'resistance': resistance,
         'psych_level': psych_level,
-        'candle_signal': candle_signal,
-        'ichimoku_signal': ichimoku_signal,
-        'volume_signal': volume_signal,
+        'rsi_signal': rsi_signal,
+        'macd_signal': macd_signal,
+        'bb_signal': bb_signal,
+        'trend_signal': trend_signal,
+        'advanced_candle_signal': advanced_candle_signal,
+        'obv_signal': obv_signal,
         'fvg_signal': fvg_signal,
     }
 
@@ -1206,10 +1637,20 @@ def log_trades(results):
             'target_price': target_price,
             'leverage': r['recommended_leverage'],
             'status': 'open',
-            'candle_signal': r['candle_signal'],
-            'ichimoku_signal': r['ichimoku_signal'],
-            'volume_signal': r['volume_signal'],
-            'fvg_signal': r['fvg_signal']
+            'rsi_signal': r['rsi_signal'],
+            'macd_signal': r['macd_signal'],
+            'bb_signal': r['bb_signal'],
+            'trend_signal': r['trend_signal'],
+            'advanced_candle_signal': r['advanced_candle_signal'],
+            'obv_signal': r['obv_signal'],
+            'fvg_signal': r['fvg_signal'],
+            'vwap_signal': r['vwap_signal'],
+            'stoch_signal': r['stoch_signal'],
+            'cci_signal': r['cci_signal'],
+            'hurst_signal': r.get('hurst_signal', 0),
+            'adx_signal': r.get('adx_signal', 0),
+            'williams_r_signal': r.get('williams_r_signal', 0),
+            'sar_signal': r.get('sar_signal', 0)
         }
         logs.append(trade)
         # Update daily risk
@@ -1221,15 +1662,15 @@ def log_trades(results):
 
 def evaluate_trades():
     """Evaluate past trades and adjust indicator weights based on performance."""
-    global ICHIMOKU_WEIGHT, VOLUME_WEIGHT, FVG_WEIGHT, CANDLE_WEIGHT, NEW_TECHNIQUE_ENABLED
+    global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
     if not os.path.exists(TRADE_LOG_FILE):
         return
     
     with open(TRADE_LOG_FILE, 'r') as f:
         logs = json.load(f)
     
-    indicator_wins = {'candle': 0, 'ichimoku': 0, 'volume': 0, 'fvg': 0}
-    indicator_losses = {'candle': 0, 'ichimoku': 0, 'volume': 0, 'fvg': 0}
+    indicator_wins = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
+    indicator_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
     total_wins = 0
     total = 0
     
@@ -1268,8 +1709,8 @@ def evaluate_trades():
         total += 1
         
         # Track indicator performance
-        for ind in ['candle', 'ichimoku', 'volume', 'fvg']:
-            signal = trade[f'{ind}_signal']
+        for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
+            signal = trade.get(f'{ind}_signal', 0)
             if win:
                 if (direction == 'long' and signal > 0) or (direction == 'short' and signal < 0):
                     indicator_wins[ind] += 1
@@ -1282,7 +1723,7 @@ def evaluate_trades():
         print(f"Evaluated {total} trades, win rate: {win_rate:.2%}")
         
         # Adjust weights per indicator
-        for ind in ['candle', 'ichimoku', 'volume', 'fvg']:
+        for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
             wins = indicator_wins[ind]
             losses = indicator_losses[ind]
             if wins + losses > 0:
@@ -1293,39 +1734,351 @@ def evaluate_trades():
                     globals()[f'{ind.upper()}_WEIGHT'] *= 0.9  # Reduce bad performers
                 if globals()[f'{ind.upper()}_WEIGHT'] < 1.0:
                     globals()[f'{ind.upper()}_WEIGHT'] = 1.0  # Neutralize underperformers
-                print(f"{ind.capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
+                print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
         
-        # Adjust overall parameters if win rate < 30%
-        if win_rate < 0.3:
+        # Adjust overall parameters if win rate < 45%
+        if win_rate < 0.45:
             global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
             MIN_STOP_PCT *= 0.9
             print("Adjusted: tighter stops due to low win rate (<30%).")
             # Enable new technique if overall poor
-            NEW_TECHNIQUE_ENABLED = True
-            print("Enabled new technique placeholder due to low performance.")
+            # NEW_TECHNIQUE_ENABLED = True
+            print("Consider enabling new techniques due to low performance.")
         
         # Save back
         with open(TRADE_LOG_FILE, 'w') as f:
             json.dump(logs, f, indent=2)
 
-def main():
-    # Check market session
-    current_session = get_current_market_session()
-    print(f"Current market session: {current_session}")
+def backtest_parameters():
+    """Backtest current parameters on historical data and auto-adjust if needed."""
+    if not BACKTEST_ENABLED:
+        return
     
-    # Adjust parameters based on session
-    session_multiplier = 1.0
-    if current_session in ['London', 'New York']:
-        session_multiplier = 1.2  # Boost expected returns during active sessions
-    elif current_session == 'Off-hours':
-        session_multiplier = 0.9  # Reduce during low activity
-    elif current_session == 'Weekend (no trading)':
-        print("It's a weekend—skipping trades to avoid low liquidity.")
-        return []  # Skip trading on weekends
+    print(f"Running backtest on last {BACKTEST_PERIOD_DAYS} days of data...")
     
-    global EXPECTED_RETURN_PER_SENTIMENT
-    EXPECTED_RETURN_PER_SENTIMENT *= session_multiplier
-    print(f"Session multiplier applied: {session_multiplier:.1f}")
+    if BACKTEST_TEST_MODE:
+        # Fake test data to demonstrate adjustments
+        backtest_results = {'total_trades': 100, 'wins': 30, 'losses': 70, 'total_return': -0.05}  # 30% win rate, poor performance
+        print("TEST MODE: Using fake backtest data for demonstration.")
+    else:
+        backtest_results = {'total_trades': 0, 'wins': 0, 'losses': 0, 'total_return': 0.0}
+        
+        # Test on expanded symbols for more accurate validation
+        test_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'GC=F', 'CL=F', 'ZW=F', 'ZC=F']
+        
+        for sym in test_symbols:
+            yf_symbol = FOREX_SYMBOL_MAP.get(sym, sym)
+            if sym in ['GC=F', 'CL=F', 'ZW=F', 'ZC=F']:
+                yf_symbol = sym  # Commodities already have correct format
+            try:
+                # Get historical hourly data
+                hist = yf.Ticker(yf_symbol).history(period=f'{BACKTEST_PERIOD_DAYS}d', interval='1h')
+                if hist.empty or len(hist) < 24:  # Need at least 1 day
+                    continue
+                
+                # Simulate trades on each hour
+                for i in range(24, len(hist)):  # Start from 24th hour to have enough data
+                    # Mock market data for the hour
+                    recent_data = hist.iloc[i-24:i]  # Last 24 hours
+                    current_price = hist.iloc[i]['Close']
+                    
+                    # Calculate ATR and other metrics (simplified)
+                    high = recent_data['High']
+                    low = recent_data['Low']
+                    close = recent_data['Close']
+                    atr = (high - low).rolling(14).mean().iloc[-1] if len(high) >= 14 else 0.001
+                    atr_pct = atr / current_price
+                    
+                    # Calculate signals from recent data
+                    close = recent_data['Close']
+                    high = recent_data['High']
+                    low = recent_data['Low']
+                    volume = recent_data['Volume']
+                    
+                    # RSI
+                    if len(close) >= 14:
+                        delta = close.diff()
+                        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                        rs = gain / loss
+                        rsi = 100 - (100 / (1 + rs))
+                        rsi_val = rsi.iloc[-1]
+                        rsi_signal = 1 if rsi_val < 30 else -1 if rsi_val > 70 else 0
+                    else:
+                        rsi_signal = 0
+                    
+                    # MACD
+                    if len(close) >= 26:
+                        ema12 = close.ewm(span=12).mean()
+                        ema26 = close.ewm(span=26).mean()
+                        macd_line = ema12 - ema26
+                        signal_line = macd_line.ewm(span=9).mean()
+                        macd_signal = 1 if macd_line.iloc[-1] > signal_line.iloc[-1] else -1
+                    else:
+                        macd_signal = 0
+                    
+                    # BB
+                    if len(close) >= 20:
+                        sma20 = close.rolling(window=20).mean()
+                        std20 = close.rolling(window=20).std()
+                        upper_bb = sma20 + 2 * std20
+                        lower_bb = sma20 - 2 * std20
+                        bb_signal = 1 if close.iloc[-1] < lower_bb.iloc[-1] else -1 if close.iloc[-1] > upper_bb.iloc[-1] else 0
+                    else:
+                        bb_signal = 0
+                    
+                    # Trend
+                    if len(close) >= 200:
+                        ema50 = close.ewm(span=50).mean()
+                        ema200 = close.ewm(span=200).mean()
+                        trend_signal = 1 if ema50.iloc[-1] > ema200.iloc[-1] else -1
+                    else:
+                        trend_signal = 0
+                    
+                    # Advanced candle
+                    advanced_candle_signal = 0
+                    if len(close) >= 2:
+                        prev_high = high.iloc[-2]
+                        prev_low = low.iloc[-2]
+                        prev_open = recent_data['Open'].iloc[-2]
+                        prev_close = close.iloc[-2]
+                        curr_high = high.iloc[-1]
+                        curr_low = low.iloc[-1]
+                        curr_open = recent_data['Open'].iloc[-1]
+                        curr_close = close.iloc[-1]
+                        # Bullish engulfing
+                        if prev_close < prev_open and curr_close > curr_open and curr_close >= prev_open and curr_open <= prev_close:
+                            advanced_candle_signal = 1
+                        # Bearish engulfing
+                        elif prev_close > prev_open and curr_close < curr_open and curr_close <= prev_open and curr_open >= prev_close:
+                            advanced_candle_signal = -1
+                    
+                    # OBV
+                    if len(volume) >= 2:
+                        obv = [0]
+                        for i in range(1, len(close)):
+                            if close.iloc[i] > close.iloc[i-1]:
+                                obv.append(obv[-1] + volume.iloc[i])
+                            elif close.iloc[i] < close.iloc[i-1]:
+                                obv.append(obv[-1] - volume.iloc[i])
+                            else:
+                                obv.append(obv[-1])
+                        obv_signal = 1 if obv[-1] > obv[-2] else -1
+                    else:
+                        obv_signal = 0
+                    
+                    # FVG
+                    fvg_signal = 0
+                    if len(close) >= 10:
+                        for i in range(-10, -1):
+                            if low.iloc[i] > high.iloc[i+2]:
+                                fvg_signal = 1
+                                break
+                            elif high.iloc[i] < low.iloc[i+2]:
+                                fvg_signal = -1
+                                break
+                    
+                    # VWAP
+                    if len(close) >= 2 and volume.sum() > 0:
+                        vwap = (close * volume).cumsum() / volume.cumsum()
+                        vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
+                    else:
+                        vwap_signal = 0
+                    
+                    # Stochastic Oscillator
+                    if len(close) >= 14:
+                        lowest_low = low.rolling(window=14).min()
+                        highest_high = high.rolling(window=14).max()
+                        stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+                        stoch_d = stoch_k.rolling(window=3).mean()
+                        stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
+                    else:
+                        stoch_signal = 0
+                    
+                    # CCI
+                    if len(close) >= 20:
+                        typical_price = (high + low + close) / 3
+                        sma_tp = typical_price.rolling(window=20).mean()
+                        mean_dev = typical_price.rolling(window=20).apply(lambda x: abs(x - x.mean()).mean())
+                        cci = (typical_price - sma_tp) / (0.015 * mean_dev)
+                        cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
+                    else:
+                        cci_signal = 0
+                    
+                    # Hurst Exponent
+                    if len(close) >= 40:
+                        hurst = calculate_hurst_exponent(close, max_lag=20)
+                        hurst_signal = 1 if hurst > 0.6 else -1 if hurst < 0.4 else 0
+                    else:
+                        hurst_signal = 0
+                    
+                    # ADX
+                    if len(close) >= 30:
+                        adx_value = calculate_adx(high, low, close, period=14)
+                        adx_signal = 1 if adx_value > 25 else -1 if adx_value < 20 else 0
+                    else:
+                        adx_signal = 0
+                    
+                    # Williams %R
+                    if len(close) >= 14:
+                        williams_r = calculate_williams_r(high, low, close, period=14)
+                        williams_r_signal = 1 if williams_r < -80 else -1 if williams_r > -20 else 0
+                    else:
+                        williams_r_signal = 0
+                    
+                    # Parabolic SAR
+                    if len(close) >= 2:
+                        sar = calculate_parabolic_sar(high, low, close)
+                        sar_signal = 1 if close.iloc[-1] > sar else -1
+                    else:
+                        sar_signal = 0
+                    
+                    # Get trade plan
+                    market_data = {
+                        'price': current_price,
+                        'volatility_hourly': atr_pct,
+                        'atr_pct': atr_pct,
+                        'pivot': (high.max() + low.min() + close.iloc[-1]) / 3,
+                        'r1': ((high.max() + low.min() + close.iloc[-1]) / 3) + atr,
+                        'r2': ((high.max() + low.min() + close.iloc[-1]) / 3) + 2*atr,
+                        's1': ((high.max() + low.min() + close.iloc[-1]) / 3) - atr,
+                        's2': ((high.max() + low.min() + close.iloc[-1]) / 3) - 2*atr,
+                        'support': low.min(),
+                        'resistance': high.max(),
+                        'psych_level': round(current_price * 100) / 100,
+                        'rsi_signal': rsi_signal,
+                        'macd_signal': macd_signal,
+                        'bb_signal': bb_signal,
+                        'trend_signal': trend_signal,
+                        'advanced_candle_signal': advanced_candle_signal,
+                        'obv_signal': obv_signal,
+                        'fvg_signal': fvg_signal,
+                        'vwap_signal': vwap_signal,
+                        'stoch_signal': stoch_signal,
+                        'cci_signal': cci_signal,
+                        'hurst_signal': hurst_signal,
+                        'adx_signal': adx_signal,
+                        'williams_r_signal': williams_r_signal,
+                        'sar_signal': sar_signal
+                    }
+                    
+                    # For backtest, use neutral sentiment to test technicals
+                    avg_sent = 0.0
+                    news_count = 0
+                    
+                    # But to allow trades, set small sentiment based on signals
+                    bullish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
+                    bearish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
+                    if bullish_count >= 3:
+                        avg_sent = 0.1
+                    elif bearish_count >= 3:
+                        avg_sent = -0.1
+                    
+                    plan = calculate_trade_plan(avg_sent, news_count, market_data, kind='forex')
+                    if not plan or plan['direction'] == 'flat':
+                        continue
+                    
+                    # Simulate trade outcome (next hour) with spread and slippage
+                    next_price = hist.iloc[i+1]['Close'] if i+1 < len(hist) else current_price
+                    direction = plan['direction']
+                    stop = plan['stop_pct']
+                    target = plan['expected_profit_pct']
+                    
+                    # Add spread and slippage (forex: 1 pip spread, 0.5 pip slippage)
+                    spread = 0.0001
+                    slippage = 0.00005
+                    
+                    if direction == 'long':
+                        entry_price = current_price + spread/2 + slippage
+                        stop_price = current_price * (1 - stop) - spread/2
+                        target_price = current_price * (1 + target) + spread/2
+                        if next_price >= target_price:
+                            backtest_results['wins'] += 1
+                            backtest_results['total_return'] += target
+                        elif next_price <= stop_price:
+                            backtest_results['losses'] += 1
+                            backtest_results['total_return'] -= stop
+                    elif direction == 'short':
+                        entry_price = current_price - spread/2 - slippage
+                        stop_price = current_price * (1 + stop) + spread/2
+                        target_price = current_price * (1 - target) - spread/2
+                        if next_price <= target_price:
+                            backtest_results['wins'] += 1
+                            backtest_results['total_return'] += target
+                        elif next_price >= stop_price:
+                            backtest_results['losses'] += 1
+                            backtest_results['total_return'] -= stop
+                    
+                    backtest_results['total_trades'] += 1
+                    
+            except Exception as e:
+                print(f"Backtest error for {sym}: {e}")
+                continue
+    
+    # Evaluate backtest
+    if backtest_results['total_trades'] > 0:
+        win_rate = backtest_results['wins'] / backtest_results['total_trades']
+        total_return = backtest_results['total_return']
+        print(f"Backtest results: {backtest_results['total_trades']} trades, win rate: {win_rate:.2%}, total return: {total_return:.4f}")
+        
+        # Auto-adjust if win rate below threshold (more aggressive adjustments for accuracy)
+        if win_rate < BACKTEST_ADJUST_THRESHOLD:
+            global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT, MAX_LEVERAGE_FOREX
+            EXPECTED_RETURN_PER_SENTIMENT *= 0.90  # Reduced to 10% for more aggressive tuning
+            MIN_STOP_PCT *= 0.90  # 10% tighter stops
+            MAX_LEVERAGE_FOREX = max(50, MAX_LEVERAGE_FOREX * 0.90)  # 10% reduction for stability
+            print("Backtest poor - auto-adjusted parameters: reduced returns, tighter stops, lower leverage.")
+        else:
+            print("Backtest satisfactory - parameters validated.")
+
+def print_current_parameters():
+    """Print current optimized parameters for monitoring improvements."""
+    print("=== Current Optimized Parameters ===")
+    print(f"EXPECTED_RETURN_PER_SENTIMENT: {EXPECTED_RETURN_PER_SENTIMENT:.6f}")
+    print(f"MIN_STOP_PCT: {MIN_STOP_PCT:.6f}")
+    print(f"MAX_LEVERAGE_FOREX: {MAX_LEVERAGE_FOREX}")
+    print(f"DAILY_RISK_LIMIT: {DAILY_RISK_LIMIT:.4f}")
+    print(f"RSI_WEIGHT: {RSI_WEIGHT:.2f}")
+    print(f"MACD_WEIGHT: {MACD_WEIGHT:.2f}")
+    print(f"BB_WEIGHT: {BB_WEIGHT:.2f}")
+    print(f"TREND_WEIGHT: {TREND_WEIGHT:.2f}")
+    print(f"ADVANCED_CANDLE_WEIGHT: {ADVANCED_CANDLE_WEIGHT:.2f}")
+    print(f"OBV_WEIGHT: {OBV_WEIGHT:.2f}")
+    print(f"FVG_WEIGHT: {FVG_WEIGHT:.2f}")
+    print(f"VWAP_WEIGHT: {VWAP_WEIGHT:.2f}")
+    print(f"STOCH_WEIGHT: {STOCH_WEIGHT:.2f}")
+    print(f"CCI_WEIGHT: {CCI_WEIGHT:.2f}")
+    print(f"HURST_WEIGHT: {HURST_WEIGHT:.2f}")
+    print(f"ADX_WEIGHT: {ADX_WEIGHT:.2f}")
+    print(f"WILLIAMS_R_WEIGHT: {WILLIAMS_R_WEIGHT:.2f}")
+    print(f"SAR_WEIGHT: {SAR_WEIGHT:.2f}")
+    print("====================================")
+
+def main(backtest_only=False):
+    if not backtest_only:
+        current_session = get_current_market_session()
+        print(f"Current market session: {current_session}")
+        
+        # Adjust parameters based on session
+        session_multiplier = 1.0
+        if current_session in ['London', 'New York']:
+            session_multiplier = 1.2  # Boost expected returns during active sessions
+        elif current_session == 'Off-hours':
+            session_multiplier = 0.9  # Reduce during low activity
+        elif current_session == 'Weekend (no trading)':
+            print("It's a weekend—skipping trades to avoid low liquidity.")
+            return []  # Skip trading on weekends
+        
+        # Only trade in active sessions
+        if current_session not in ['London', 'New York']:
+            print(f"Current session '{current_session}' is not active for trading—skipping to focus on high liquidity periods.")
+            return []  # Only trade in London or NY sessions
+        
+        global EXPECTED_RETURN_PER_SENTIMENT
+        EXPECTED_RETURN_PER_SENTIMENT *= session_multiplier
+        print(f"Session multiplier applied: {session_multiplier:.1f}")
+    else:
+        print("Running in backtest-only mode - bypassing session checks")
     
     print('Forex, Commodities & Indices News Trading Bot v2.0 - Fetching latest signals (1h timeframe)...')
     articles = get_news()
@@ -1365,12 +2118,20 @@ def main():
         if not market:
             continue
 
+        # Skip high volatility periods (>2%)
+        if market['volatility_hourly'] > 0.02:
+            continue
+
         plan = calculate_trade_plan(avg_sent, news_count, market, kind=kind)
         if not plan:
             continue
 
+        # Debug for first few
+        if sym in ['EURUSD', 'GBPUSD', 'GC=F']:
+            print(f"DEBUG {sym}: sentiment={avg_sent:.3f}, expected_return={plan['expected_return_pct']:.6f}, direction={plan['direction']}, rsi={plan['rsi_signal']}, macd={plan['macd_signal']}, bb={plan['bb_signal']}, rr={plan['rr']:.2f}")
+
         # Only keep actionable plans
-        if plan['direction'] == 'flat' or plan['rr'] < 0.5:
+        if plan['direction'] == 'flat' or plan['rr'] < 1.5:  # Loosened for more trades with 2:1 RR
             continue
 # --- OPTIONAL safety in main() loop, just before get_market_data(...) ---
         # Skip unknown/price-less stock-like tickers defensively
@@ -1410,15 +2171,33 @@ def main():
             'support': market['support'],
             'resistance': market['resistance'],
             'psych_level': market['psych_level'],
-            'candle_signal': market['candle_signal'],
-            'ichimoku_signal': market['ichimoku_signal'],
-            'volume_signal': market['volume_signal'],
+            'rsi_signal': market['rsi_signal'],
+            'macd_signal': market['macd_signal'],
+            'bb_signal': market['bb_signal'],
+            'trend_signal': market['trend_signal'],
+            'advanced_candle_signal': market['advanced_candle_signal'],
+            'obv_signal': market['obv_signal'],
             'fvg_signal': market['fvg_signal'],
+            'vwap_signal': market['vwap_signal'],
+            'stoch_signal': market['stoch_signal'],
+            'cci_signal': market['cci_signal'],
+            'hurst_signal': market.get('hurst_signal', 0),
+            'adx_signal': market.get('adx_signal', 0),
+            'williams_r_signal': market.get('williams_r_signal', 0),
+            'sar_signal': market.get('sar_signal', 0),
             **plan
         })
 
     # sort by quality: rr then news_count
     results.sort(key=lambda r: (r['rr'], r['news_count']), reverse=True)
+
+    # Evaluate and learn every run
+    evaluate_trades()
+    
+    # Backtest and auto-validate parameters
+    backtest_parameters()
+    
+    print_current_parameters()  # Show updated parameters after adjustments
 
     if not results:
         message = 'No actionable forex, commodities, or indices trades found at this time.'
@@ -1451,9 +2230,6 @@ def main():
     
     # Log trades
     log_trades(results)
-    
-    # Evaluate and learn every run
-    evaluate_trades()
     
     return results
 
@@ -1559,4 +2335,7 @@ def get_market_data(yf_symbol, kind='forex'):
     return None
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == '--backtest':
+        main(backtest_only=True)
+    else:
+        main()
