@@ -360,15 +360,19 @@ DEFAULT_SYMBOLS = [
     ('NDX', 'QQQ', 'stock'),      # Nasdaq
 ]
 
-# Risk settings (optimized for maximum profit with minimum risk)
-MIN_STOP_PCT = 0.0003  # 0.03% ultra-tight stops for risk control
+# Risk settings (optimized for safety with realistic profit targets)
+MIN_STOP_PCT = 0.001  # 0.1% minimum (10 pips) - accounts for typical forex spreads
 EXPECTED_RETURN_PER_SENTIMENT = 0.006  # 0.6% per sentiment point (higher profit potential)
 NEWS_COUNT_BONUS = 0.002  # 0.2% per article (increased news value)
 MAX_NEWS_BONUS = 0.01  # Max 1% bonus from news
 
-# Leverage caps - Optimized for profit maximization
-MAX_LEVERAGE_FOREX = 100  # Further reduced for safety while maintaining profit potential
+# Leverage caps - Conservative for risk management
+MAX_LEVERAGE_FOREX = 20  # Reduced from 100x for safety (20x max)
 MAX_LEVERAGE_STOCK = 3    # Conservative for stocks
+
+# Execution costs (realistic forex trading costs)
+FOREX_SPREAD_PCT = 0.0001  # 0.01% typical spread (1 pip for majors)
+FOREX_SLIPPAGE_PCT = 0.00005  # 0.005% slippage (0.5 pip average)
 
 # Low money mode flag - Set to True for accounts with small capital (< $500 equivalent)
 LOW_MONEY_MODE = True
@@ -377,7 +381,7 @@ if LOW_MONEY_MODE:
     EXPECTED_RETURN_PER_SENTIMENT = 0.008  # 0.8% - Higher ROI to offset fees
     NEWS_COUNT_BONUS = 0.003  # 0.3% - Increased news impact
     MAX_NEWS_BONUS = 0.015  # 1.5% - Higher max bonus
-    MIN_STOP_PCT = 0.0002  # 0.02% - Ultra-tight stops
+    MIN_STOP_PCT = 0.001  # 0.1% - Safe minimum stops (10 pips)
 
 # Daily risk limit (1% for better profit potential with controlled risk)
 DAILY_RISK_LIMIT = 0.01  # 1% max loss per day (increased for higher RR trades)
@@ -392,21 +396,17 @@ BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical v
 BACKTEST_ADJUST_THRESHOLD = 0.66  # Stricter win rate threshold (66%) for adjustments
 BACKTEST_TEST_MODE = False  # Use fake data for testing (set to False for real backtesting)
 
-# Indicator weights (adaptive learning)
-RSI_WEIGHT = 1.2
-MACD_WEIGHT = 1.15
-BB_WEIGHT = 1.1
-TREND_WEIGHT = 1.3
-ADVANCED_CANDLE_WEIGHT = 1.1
-OBV_WEIGHT = 1.15
-FVG_WEIGHT = 1.1
-VWAP_WEIGHT = 1.6
-STOCH_WEIGHT = 1.5
-CCI_WEIGHT = 1.4
-HURST_WEIGHT = 1.3
-ADX_WEIGHT = 1.5
-WILLIAMS_R_WEIGHT = 1.4
-SAR_WEIGHT = 1.35
+# Indicator weights (additive scoring system - sum to 1.0 for normalization)
+# Weights represent importance of each indicator in the final decision
+WEIGHTS = {
+    'trend': 0.25,      # EMA trend - most important for direction
+    'rsi': 0.15,        # RSI momentum
+    'macd': 0.15,       # MACD trend confirmation
+    'vwap': 0.15,       # VWAP institutional levels
+    'adx': 0.15,        # ADX trend strength
+    'bb': 0.10,         # Bollinger Bands volatility
+    'sar': 0.05,        # Parabolic SAR support/resistance
+}
 
 # Market sessions (UTC, Monday-Friday)
 MARKET_SESSIONS = [
@@ -664,30 +664,8 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
             elif (min(curr_open, curr_close) - curr_low) > 2 * abs(curr_close - curr_open) and (curr_high - max(curr_open, curr_close)) < abs(curr_close - curr_open):
                 advanced_candle_signal = 1  # Bullish hammer
 
-        # Better FVG detection: look for imbalances in last 10 candles
+        # Better FVG detection: look for imbalances in last 10 candles (removed as not critical)
         fvg_signal = 0
-        if len(close) >= 10:
-            for i in range(-10, -1):
-                if low.iloc[i] > high.iloc[i+2]:
-                    fvg_signal = 1  # Bullish FVG
-                    break
-                elif high.iloc[i] < low.iloc[i+2]:
-                    fvg_signal = -1  # Bearish FVG
-                    break
-
-        # Volume: OBV-like
-        if len(volume) >= 2:
-            obv = [0]
-            for i in range(1, len(close)):
-                if close.iloc[i] > close.iloc[i-1]:
-                    obv.append(obv[-1] + volume.iloc[i])
-                elif close.iloc[i] < close.iloc[i-1]:
-                    obv.append(obv[-1] - volume.iloc[i])
-                else:
-                    obv.append(obv[-1])
-            obv_signal = 1 if obv[-1] > obv[-2] else -1
-        else:
-            obv_signal = 0
 
         # VWAP
         if len(close) >= 2 and volume.sum() > 0:
@@ -695,49 +673,15 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
             vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
         else:
             vwap_signal = 0
-
-        # Stochastic Oscillator
-        if len(close) >= 14:
-            lowest_low = low.rolling(window=14).min()
-            highest_high = high.rolling(window=14).max()
-            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-            stoch_d = stoch_k.rolling(window=3).mean()
-            stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
-        else:
-            stoch_signal = 0
-
-        # CCI (Commodity Channel Index)
-        if len(close) >= 20:
-            typical_price = (high + low + close) / 3
-            sma_tp = typical_price.rolling(window=20).mean()
-            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
-            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-            cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
-        else:
-            cci_signal = 0
         
-        # Hurst Exponent
-        if len(close) >= 40:
-            hurst = calculate_hurst_exponent(close, max_lag=20)
-            hurst_signal = 1 if hurst > 0.6 else -1 if hurst < 0.4 else 0
-        else:
-            hurst_signal = 0
-        
-        # ADX (Average Directional Index)
+        # ADX (Average Directional Index) - trend strength
         if len(close) >= 30:
             adx_value = calculate_adx(high, low, close, period=14)
             adx_signal = 1 if adx_value > 25 else -1 if adx_value < 20 else 0  # Strong trend vs weak/range
         else:
             adx_signal = 0
         
-        # Williams %R
-        if len(close) >= 14:
-            williams_r = calculate_williams_r(high, low, close, period=14)
-            williams_r_signal = 1 if williams_r < -80 else -1 if williams_r > -20 else 0
-        else:
-            williams_r_signal = 0
-        
-        # Parabolic SAR
+        # Parabolic SAR - support/resistance
         if len(close) >= 2:
             sar = calculate_parabolic_sar(high, low, close)
             sar_signal = 1 if close.iloc[-1] > sar else -1  # Above SAR = bullish, below = bearish
@@ -758,15 +702,8 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
             'macd_signal': macd_signal,
             'bb_signal': bb_signal,
             'trend_signal': trend_signal,
-            'advanced_candle_signal': advanced_candle_signal,
-            'obv_signal': obv_signal,
-            'fvg_signal': fvg_signal,
             'vwap_signal': vwap_signal,
-            'stoch_signal': stoch_signal,
-            'cci_signal': cci_signal,
-            'hurst_signal': hurst_signal,
             'adx_signal': adx_signal,
-            'williams_r_signal': williams_r_signal,
             'sar_signal': sar_signal
         }
     except Exception as e:
@@ -1390,7 +1327,7 @@ def recommend_leverage(rr, volatility, kind='forex'):
 
 def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     '''Return dict with direction, expected_profit_pct, stop_pct, rr, recommended_leverage.'''
-    global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
+    global WEIGHTS
     if not market_data:
         return None
     price = market_data['price']
@@ -1406,126 +1343,69 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
     macd_signal = market_data['macd_signal']
     bb_signal = market_data['bb_signal']
     trend_signal = market_data['trend_signal']
-    advanced_candle_signal = market_data['advanced_candle_signal']
-    obv_signal = market_data['obv_signal']
-    fvg_signal = market_data['fvg_signal']
     vwap_signal = market_data['vwap_signal']
-    stoch_signal = market_data['stoch_signal']
-    cci_signal = market_data['cci_signal']
-    hurst_signal = market_data.get('hurst_signal', 0)
     adx_signal = market_data.get('adx_signal', 0)
-    williams_r_signal = market_data.get('williams_r_signal', 0)
     sar_signal = market_data.get('sar_signal', 0)
 
     # sentiment-driven expected move
     news_bonus = min(MAX_NEWS_BONUS, NEWS_COUNT_BONUS * news_count)
-    expected_return = avg_sentiment * EXPECTED_RETURN_PER_SENTIMENT + news_bonus * (1 if avg_sentiment >= 0 else -1)
+    base_return = avg_sentiment * EXPECTED_RETURN_PER_SENTIMENT + news_bonus * (1 if avg_sentiment >= 0 else -1)
 
     # Adjust for technical levels
+    level_multiplier = 1.0
     # Near resistance: reduce bullish
     if price > resistance * 0.98:
-        expected_return *= 0.8
+        level_multiplier *= 0.8
     # Near support: boost bullish
     if price < support * 1.02:
-        expected_return *= 1.2
-    # Near pivot: neutral
+        level_multiplier *= 1.2
     # Psychological magnet: if close to psych level, slight boost
     if abs(price - psych_level) / price < 0.01:
-        expected_return *= 1.1
+        level_multiplier *= 1.1
+    
+    base_return *= level_multiplier
 
-    # RSI confirmation: oversold for long, overbought for short
-    if (avg_sentiment > 0 and rsi_signal > 0) or (avg_sentiment < 0 and rsi_signal < 0):
-        expected_return *= RSI_WEIGHT
-    elif (avg_sentiment > 0 and rsi_signal < 0) or (avg_sentiment < 0 and rsi_signal > 0):
-        expected_return *= (2 - RSI_WEIGHT)
-
-    # MACD confirmation
-    if (avg_sentiment > 0 and macd_signal > 0) or (avg_sentiment < 0 and macd_signal < 0):
-        expected_return *= MACD_WEIGHT
-    elif (avg_sentiment > 0 and macd_signal < 0) or (avg_sentiment < 0 and macd_signal > 0):
-        expected_return *= (2 - MACD_WEIGHT)
-
-    # Bollinger Bands confirmation
-    if (avg_sentiment > 0 and bb_signal > 0) or (avg_sentiment < 0 and bb_signal < 0):
-        expected_return *= BB_WEIGHT
-    elif (avg_sentiment > 0 and bb_signal < 0) or (avg_sentiment < 0 and bb_signal > 0):
-        expected_return *= (2 - BB_WEIGHT)
-
-    # Trend confirmation (strong weight)
-    if (avg_sentiment > 0 and trend_signal > 0) or (avg_sentiment < 0 and trend_signal < 0):
-        expected_return *= TREND_WEIGHT
-    elif (avg_sentiment > 0 and trend_signal < 0) or (avg_sentiment < 0 and trend_signal > 0):
-        expected_return *= (2 - TREND_WEIGHT)
-
-    # Advanced candle confirmation
-    if (avg_sentiment > 0 and advanced_candle_signal > 0) or (avg_sentiment < 0 and advanced_candle_signal < 0):
-        expected_return *= ADVANCED_CANDLE_WEIGHT
-    elif (avg_sentiment > 0 and advanced_candle_signal < 0) or (avg_sentiment < 0 and advanced_candle_signal > 0):
-        expected_return *= (2 - ADVANCED_CANDLE_WEIGHT)
-
-    # OBV confirmation
-    if (avg_sentiment > 0 and obv_signal > 0) or (avg_sentiment < 0 and obv_signal < 0):
-        expected_return *= OBV_WEIGHT
-    elif (avg_sentiment > 0 and obv_signal < 0) or (avg_sentiment < 0 and obv_signal > 0):
-        expected_return *= (2 - OBV_WEIGHT)
-
-    # FVG confirmation
-    if (avg_sentiment > 0 and fvg_signal > 0) or (avg_sentiment < 0 and fvg_signal < 0):
-        expected_return *= FVG_WEIGHT
-    elif (avg_sentiment > 0 and fvg_signal < 0) or (avg_sentiment < 0 and fvg_signal > 0):
-        expected_return *= (2 - FVG_WEIGHT)
-
-    # VWAP confirmation
-    if (avg_sentiment > 0 and vwap_signal > 0) or (avg_sentiment < 0 and vwap_signal < 0):
-        expected_return *= VWAP_WEIGHT
-    elif (avg_sentiment > 0 and vwap_signal < 0) or (avg_sentiment < 0 and vwap_signal > 0):
-        expected_return *= (2 - VWAP_WEIGHT)
-
-    # Stochastic confirmation
-    if (avg_sentiment > 0 and stoch_signal > 0) or (avg_sentiment < 0 and stoch_signal < 0):
-        expected_return *= STOCH_WEIGHT
-    elif (avg_sentiment > 0 and stoch_signal < 0) or (avg_sentiment < 0 and stoch_signal > 0):
-        expected_return *= (2 - STOCH_WEIGHT)
-
-    # CCI confirmation
-    if (avg_sentiment > 0 and cci_signal > 0) or (avg_sentiment < 0 and cci_signal < 0):
-        expected_return *= CCI_WEIGHT
-    elif (avg_sentiment > 0 and cci_signal < 0) or (avg_sentiment < 0 and cci_signal > 0):
-        expected_return *= (2 - CCI_WEIGHT)
-
-    # Hurst confirmation
-    if (avg_sentiment > 0 and hurst_signal > 0) or (avg_sentiment < 0 and hurst_signal < 0):
-        expected_return *= HURST_WEIGHT
-    elif (avg_sentiment > 0 and hurst_signal < 0) or (avg_sentiment < 0 and hurst_signal > 0):
-        expected_return *= (2 - HURST_WEIGHT)
-
-    # ADX confirmation (trend strength)
-    if (avg_sentiment > 0 and adx_signal > 0) or (avg_sentiment < 0 and adx_signal < 0):
-        expected_return *= ADX_WEIGHT
-    elif (avg_sentiment > 0 and adx_signal < 0) or (avg_sentiment < 0 and adx_signal > 0):
-        expected_return *= (2 - ADX_WEIGHT)
-
-    # Williams %R confirmation
-    if (avg_sentiment > 0 and williams_r_signal > 0) or (avg_sentiment < 0 and williams_r_signal < 0):
-        expected_return *= WILLIAMS_R_WEIGHT
-    elif (avg_sentiment > 0 and williams_r_signal < 0) or (avg_sentiment < 0 and williams_r_signal > 0):
-        expected_return *= (2 - WILLIAMS_R_WEIGHT)
-
-    # Parabolic SAR confirmation
-    if (avg_sentiment > 0 and sar_signal > 0) or (avg_sentiment < 0 and sar_signal < 0):
-        expected_return *= SAR_WEIGHT
-    elif (avg_sentiment > 0 and sar_signal < 0) or (avg_sentiment < 0 and sar_signal > 0):
-        expected_return *= (2 - SAR_WEIGHT)
+    # NEW ADDITIVE SCORING: Calculate weighted score from indicators
+    # Each indicator contributes its weight if aligned with sentiment direction
+    indicator_score = 0.0
+    sentiment_direction = 1 if avg_sentiment > 0 else -1 if avg_sentiment < 0 else 0
+    
+    # Add weighted contributions for aligned indicators
+    if sentiment_direction != 0:
+        if trend_signal == sentiment_direction:
+            indicator_score += WEIGHTS['trend']
+        if rsi_signal == sentiment_direction:
+            indicator_score += WEIGHTS['rsi']
+        if macd_signal == sentiment_direction:
+            indicator_score += WEIGHTS['macd']
+        if vwap_signal == sentiment_direction:
+            indicator_score += WEIGHTS['vwap']
+        if adx_signal == sentiment_direction:
+            indicator_score += WEIGHTS['adx']
+        if bb_signal == sentiment_direction:
+            indicator_score += WEIGHTS['bb']
+        if sar_signal == sentiment_direction:
+            indicator_score += WEIGHTS['sar']
+    
+    # Calculate final expected return using additive score
+    # Score ranges from 0 (no confirmation) to 1.0 (all indicators aligned)
+    # Multiply base return by (1 + score) to boost confirmed trades
+    expected_return = base_return * (1 + indicator_score)
+    
+    # Account for execution costs (spread + slippage)
+    if kind == 'forex':
+        execution_cost = FOREX_SPREAD_PCT + FOREX_SLIPPAGE_PCT
+        expected_return -= execution_cost * sentiment_direction if sentiment_direction != 0 else 0
 
     expected_profit_pct = abs(expected_return)
 
     vol = market_data.get('volatility_hourly', 0.0)
     atr_pct = market_data.get('atr_pct', 0.005)
-    # Determine stop loss percent (use ATR for optimized 15m/30m stops, adjusted for forex)
+    # Determine stop loss percent (use ATR with safer minimum)
     if kind == 'forex':
-        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.5, 0.001))  # Cap at 0.1% for risk control
+        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.5, 0.002))  # Min 10 pips, max 20 pips
     else:
-        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.0, 0.001))  # Cap at 0.1% for commodities
+        stop_pct = max(MIN_STOP_PCT, min(atr_pct * 1.0, 0.002))  # More conservative for commodities
 
     if stop_pct <= 0:
         return None
@@ -1537,12 +1417,12 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
         expected_profit_pct = 2 * stop_pct
         rr = 2.0
 
-    # Multi-confirmation: count agreeing indicators
-    bullish_signals = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
-    bearish_signals = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
-    total_signals = bullish_signals + bearish_signals
+    # Multi-confirmation: count agreeing indicators (only using kept indicators)
+    active_indicators = [rsi_signal, macd_signal, bb_signal, trend_signal, vwap_signal, adx_signal, sar_signal]
+    bullish_signals = sum(1 for s in active_indicators if s > 0)
+    bearish_signals = sum(1 for s in active_indicators if s < 0)
 
-    # Require at least 3 agreeing signals for trade
+    # Require at least 3 agreeing signals for trade (out of 7 indicators)
     min_confirmations = 3
 
     # decide direction based on sentiment and confirmations
@@ -1578,9 +1458,10 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex'):
         'macd_signal': macd_signal,
         'bb_signal': bb_signal,
         'trend_signal': trend_signal,
-        'advanced_candle_signal': advanced_candle_signal,
-        'obv_signal': obv_signal,
-        'fvg_signal': fvg_signal,
+        'vwap_signal': vwap_signal,
+        'adx_signal': adx_signal,
+        'sar_signal': sar_signal,
+        'indicator_score': indicator_score,
     }
 
 def get_daily_risk():
@@ -1645,20 +1526,15 @@ def log_trades(results):
             'target_price': target_price,
             'leverage': r['recommended_leverage'],
             'status': 'open',
-            'rsi_signal': r['rsi_signal'],
-            'macd_signal': r['macd_signal'],
-            'bb_signal': r['bb_signal'],
-            'trend_signal': r['trend_signal'],
-            'advanced_candle_signal': r['advanced_candle_signal'],
-            'obv_signal': r['obv_signal'],
-            'fvg_signal': r['fvg_signal'],
-            'vwap_signal': r['vwap_signal'],
-            'stoch_signal': r['stoch_signal'],
-            'cci_signal': r['cci_signal'],
-            'hurst_signal': r.get('hurst_signal', 0),
+            # Only log active indicators
+            'rsi_signal': r.get('rsi_signal', 0),
+            'macd_signal': r.get('macd_signal', 0),
+            'bb_signal': r.get('bb_signal', 0),
+            'trend_signal': r.get('trend_signal', 0),
+            'vwap_signal': r.get('vwap_signal', 0),
             'adx_signal': r.get('adx_signal', 0),
-            'williams_r_signal': r.get('williams_r_signal', 0),
-            'sar_signal': r.get('sar_signal', 0)
+            'sar_signal': r.get('sar_signal', 0),
+            'indicator_score': r.get('indicator_score', 0.0)
         }
         logs.append(trade)
         # Update daily risk
@@ -1670,15 +1546,16 @@ def log_trades(results):
 
 def evaluate_trades():
     """Evaluate past trades and adjust indicator weights based on performance."""
-    global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
+    global WEIGHTS
     if not os.path.exists(TRADE_LOG_FILE):
         return
     
     with open(TRADE_LOG_FILE, 'r') as f:
         logs = json.load(f)
     
-    indicator_wins = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
-    indicator_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
+    # Track only indicators we're keeping
+    indicator_wins = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'vwap': 0, 'adx': 0, 'sar': 0}
+    indicator_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'vwap': 0, 'adx': 0, 'sar': 0}
     total_wins = 0
     total = 0
     
@@ -1716,8 +1593,8 @@ def evaluate_trades():
                 trade['status'] = 'loss'
         total += 1
         
-        # Track indicator performance
-        for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
+        # Track indicator performance (only active indicators)
+        for ind in ['rsi', 'macd', 'bb', 'trend', 'vwap', 'adx', 'sar']:
             signal = trade.get(f'{ind}_signal', 0)
             if win:
                 if (direction == 'long' and signal > 0) or (direction == 'short' and signal < 0):
@@ -1730,28 +1607,29 @@ def evaluate_trades():
         win_rate = total_wins / total
         print(f"Evaluated {total} trades, win rate: {win_rate:.2%}")
         
-        # Adjust weights per indicator
-        for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
+        # Adjust weights per indicator with additive system
+        total_weight = sum(WEIGHTS.values())
+        for ind in ['rsi', 'macd', 'bb', 'trend', 'vwap', 'adx', 'sar']:
             wins = indicator_wins[ind]
             losses = indicator_losses[ind]
             if wins + losses > 0:
                 ind_win_rate = wins / (wins + losses)
                 if ind_win_rate > 0.6:
-                    globals()[f'{ind.upper()}_WEIGHT'] *= 1.1  # Boost good performers
+                    WEIGHTS[ind] *= 1.05  # Modest boost for good performers
                 elif ind_win_rate < 0.4:
-                    globals()[f'{ind.upper()}_WEIGHT'] *= 0.9  # Reduce bad performers
-                if globals()[f'{ind.upper()}_WEIGHT'] < 1.0:
-                    globals()[f'{ind.upper()}_WEIGHT'] = 1.0  # Neutralize underperformers
-                print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
+                    WEIGHTS[ind] *= 0.95  # Modest reduction for bad performers
+                print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {WEIGHTS[ind]:.3f}")
+        
+        # Renormalize weights to sum to 1.0
+        total_weight = sum(WEIGHTS.values())
+        for ind in WEIGHTS:
+            WEIGHTS[ind] /= total_weight
         
         # Adjust overall parameters if win rate < 45%
         if win_rate < 0.45:
             global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
-            MIN_STOP_PCT *= 0.9
-            print("Adjusted: tighter stops due to low win rate (<30%).")
-            # Enable new technique if overall poor
-            # NEW_TECHNIQUE_ENABLED = True
-            print("Consider enabling new techniques due to low performance.")
+            MIN_STOP_PCT = max(0.001, MIN_STOP_PCT * 1.1)  # Widen stops slightly
+            print(f"Adjusted: wider stops due to low win rate (<45%). New MIN_STOP_PCT: {MIN_STOP_PCT:.6f}")
         
         # Save back
         with open(TRADE_LOG_FILE, 'w') as f:
@@ -2043,24 +1921,16 @@ def print_current_parameters():
     """Print current optimized parameters for monitoring improvements."""
     print("=== Current Optimized Parameters ===")
     print(f"EXPECTED_RETURN_PER_SENTIMENT: {EXPECTED_RETURN_PER_SENTIMENT:.6f}")
-    print(f"MIN_STOP_PCT: {MIN_STOP_PCT:.6f}")
-    print(f"MAX_LEVERAGE_FOREX: {MAX_LEVERAGE_FOREX}")
+    print(f"MIN_STOP_PCT: {MIN_STOP_PCT:.6f} (10 pips minimum)")
+    print(f"MAX_LEVERAGE_FOREX: {MAX_LEVERAGE_FOREX}x (conservative)")
     print(f"DAILY_RISK_LIMIT: {DAILY_RISK_LIMIT:.4f}")
-    print(f"RSI_WEIGHT: {RSI_WEIGHT:.2f}")
-    print(f"MACD_WEIGHT: {MACD_WEIGHT:.2f}")
-    print(f"BB_WEIGHT: {BB_WEIGHT:.2f}")
-    print(f"TREND_WEIGHT: {TREND_WEIGHT:.2f}")
-    print(f"ADVANCED_CANDLE_WEIGHT: {ADVANCED_CANDLE_WEIGHT:.2f}")
-    print(f"OBV_WEIGHT: {OBV_WEIGHT:.2f}")
-    print(f"FVG_WEIGHT: {FVG_WEIGHT:.2f}")
-    print(f"VWAP_WEIGHT: {VWAP_WEIGHT:.2f}")
-    print(f"STOCH_WEIGHT: {STOCH_WEIGHT:.2f}")
-    print(f"CCI_WEIGHT: {CCI_WEIGHT:.2f}")
-    print(f"HURST_WEIGHT: {HURST_WEIGHT:.2f}")
-    print(f"ADX_WEIGHT: {ADX_WEIGHT:.2f}")
-    print(f"WILLIAMS_R_WEIGHT: {WILLIAMS_R_WEIGHT:.2f}")
-    print(f"SAR_WEIGHT: {SAR_WEIGHT:.2f}")
+    print(f"FOREX_SPREAD_PCT: {FOREX_SPREAD_PCT:.6f}")
+    print(f"FOREX_SLIPPAGE_PCT: {FOREX_SLIPPAGE_PCT:.6f}")
+    print("\n=== Additive Indicator Weights (sum=1.0) ===")
+    for indicator, weight in WEIGHTS.items():
+        print(f"{indicator.upper()}: {weight:.3f}")
     print("====================================")
+
 
 def main(backtest_only=False):
     if not backtest_only:
@@ -2179,19 +2049,13 @@ def main(backtest_only=False):
             'support': market['support'],
             'resistance': market['resistance'],
             'psych_level': market['psych_level'],
-            'rsi_signal': market['rsi_signal'],
-            'macd_signal': market['macd_signal'],
-            'bb_signal': market['bb_signal'],
-            'trend_signal': market['trend_signal'],
-            'advanced_candle_signal': market['advanced_candle_signal'],
-            'obv_signal': market['obv_signal'],
-            'fvg_signal': market['fvg_signal'],
-            'vwap_signal': market['vwap_signal'],
-            'stoch_signal': market['stoch_signal'],
-            'cci_signal': market['cci_signal'],
-            'hurst_signal': market.get('hurst_signal', 0),
+            # Only include active indicators
+            'rsi_signal': market.get('rsi_signal', 0),
+            'macd_signal': market.get('macd_signal', 0),
+            'bb_signal': market.get('bb_signal', 0),
+            'trend_signal': market.get('trend_signal', 0),
+            'vwap_signal': market.get('vwap_signal', 0),
             'adx_signal': market.get('adx_signal', 0),
-            'williams_r_signal': market.get('williams_r_signal', 0),
             'sar_signal': market.get('sar_signal', 0),
             **plan
         })
