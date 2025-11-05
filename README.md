@@ -8,6 +8,10 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Automatically trains on historical trade data
   - Filters trades based on ML confidence and probability scores
   - Periodic retraining every 24 hours for continuous improvement
+  - **NEW: News-Driven vs Logic-Driven Failure Detection** - Distinguishes between trade failures caused by unexpected news events vs incorrect technical analysis
+    - Prevents ML from incorrectly learning to avoid good setups hit by unpredictable news
+    - Fairly evaluates indicator performance by excluding news-driven failures
+    - Provides clearer insights into true strategy effectiveness
 - **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources
   - Includes 27 news sources from reputable financial outlets
   - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
@@ -161,6 +165,9 @@ The ML model uses ensemble methods (Random Forest + Gradient Boosting) with 21 f
 - `ml_last_train.json`: Timestamp of last ML training
 - `daily_risk.json`: Daily risk tracking
 - `README.md`: This file
+- `ML_EXPLANATION.md`: Detailed ML technical explanation
+- `NEWS_DETECTION_EXPLANATION.md`: Explanation of news-driven vs logic-driven failure detection
+- `test_detection_simple.py`: Test script demonstrating failure detection
 
 ## Risk Disclaimer
 

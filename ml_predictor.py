@@ -119,23 +119,38 @@ class MLTradingPredictor:
         
         X = []
         y = []
+        news_driven_count = 0
+        logic_driven_count = 0
         
         for trade in trades:
+            status = trade.get('status', 'open')
+            
             # Skip open trades
-            if trade.get('status') == 'open':
+            if status == 'open':
+                continue
+            
+            # Skip news-driven losses from training - they don't reflect indicator quality
+            # Only train on logic-driven outcomes (wins and logic-driven losses)
+            if status == 'loss_news_driven':
+                news_driven_count += 1
                 continue
             
             # Extract features
             features = self.extract_features(trade)
             X.append(features[0])
             
-            # Label: 1 for win, 0 for loss
-            label = 1 if trade.get('status') == 'win' else 0
+            # Label: 1 for win, 0 for logic-driven loss
+            label = 1 if status == 'win' else 0
             y.append(label)
+            
+            if label == 0:
+                logic_driven_count += 1
         
         if len(X) < self.min_training_samples:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")
             return None, None
+        
+        logger.info(f"Training on {len(X)} trades ({sum(y)} wins, {logic_driven_count} logic losses, {news_driven_count} news-driven excluded)")
         
         return np.array(X), np.array(y)
     

@@ -1630,6 +1630,56 @@ def _symbol_has_prices(yf_symbol: str) -> bool:
     except Exception:
         return False
 
+def detect_news_driven_failure(trade, current_market_data):
+    """
+    Detect if a trade failure was likely caused by news events rather than logic errors.
+    
+    Returns: (is_news_driven, reason)
+    - is_news_driven: True if failure likely caused by news/external events
+    - reason: String explanation of the determination
+    """
+    # Get entry conditions
+    entry_volatility = trade.get('entry_volatility', 0.01)
+    entry_atr_pct = trade.get('entry_atr_pct', 0.005)
+    
+    # Get exit conditions from market data
+    exit_volatility = current_market_data.get('volatility_hourly', 0.01)
+    exit_atr_pct = current_market_data.get('atr_pct', 0.005)
+    
+    # Calculate volatility spike
+    volatility_increase = exit_volatility / entry_volatility if entry_volatility > 0 else 1.0
+    atr_increase = exit_atr_pct / entry_atr_pct if entry_atr_pct > 0 else 1.0
+    
+    # News-driven failure indicators:
+    # 1. Sudden volatility spike (>2x normal)
+    if volatility_increase > 2.0 or atr_increase > 2.0:
+        return True, f"Volatility spike detected: {volatility_increase:.2f}x increase (likely news event)"
+    
+    # 2. Extreme volatility at exit (>3% hourly)
+    if exit_volatility > 0.03:
+        return True, f"Extreme volatility at exit: {exit_volatility:.4f} (likely major news)"
+    
+    # 3. Check if trade was stopped out very quickly (within 2 hours)
+    # This suggests a sudden market event rather than gradual technical failure
+    trade_time = datetime.fromisoformat(trade['timestamp'])
+    time_elapsed = (datetime.now() - trade_time).total_seconds() / 3600
+    if time_elapsed < 2:
+        # Quick stop-out with high volatility suggests news event
+        if exit_volatility > 0.015:
+            return True, f"Quick stop-out ({time_elapsed:.1f}h) with high volatility (likely sudden news)"
+    
+    # 4. Check for very large adverse price moves (>5x normal ATR)
+    entry_price = trade.get('entry_price', 0)
+    current_price = current_market_data.get('price', entry_price)
+    price_move = abs(current_price - entry_price) / entry_price if entry_price > 0 else 0
+    expected_move = entry_atr_pct * 2  # Normal 2 ATR move
+    
+    if price_move > expected_move * 5:
+        return True, f"Extreme price move: {price_move:.4f} vs expected {expected_move:.4f} (likely news shock)"
+    
+    # If none of the above, it's likely a logic-driven failure
+    return False, "Normal market conditions - likely technical/logic failure"
+
 def log_trades(results):
     """Log suggested trades to JSON file with indicator signals."""
     if not os.path.exists(TRADE_LOG_FILE):
@@ -1674,7 +1724,12 @@ def log_trades(results):
             'hurst_signal': r.get('hurst_signal', 0),
             'adx_signal': r.get('adx_signal', 0),
             'williams_r_signal': r.get('williams_r_signal', 0),
-            'sar_signal': r.get('sar_signal', 0)
+            'sar_signal': r.get('sar_signal', 0),
+            # New fields for news-driven failure detection
+            'entry_volatility': r['volatility_hourly'],
+            'entry_atr_pct': r['atr_pct'],
+            'entry_sentiment': r['avg_sentiment'],
+            'entry_news_count': r['news_count']
         }
         logs.append(trade)
         # Update daily risk
@@ -1695,7 +1750,10 @@ def evaluate_trades():
     
     indicator_wins = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
     indicator_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
+    indicator_news_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
     total_wins = 0
+    total_losses = 0
+    total_news_losses = 0
     total = 0
     
     for trade in logs:
@@ -1707,49 +1765,121 @@ def evaluate_trades():
             continue
         symbol = trade['symbol']
         yf_symbol = FOREX_SYMBOL_MAP.get(symbol, symbol + '=X')
+        
+        # Get current market data to check for news-driven conditions
         try:
             ticker = yf.Ticker(yf_symbol)
-            current_price = float(ticker.history(period='1d')['Close'].iloc[-1])
-        except:
+            hist = ticker.history(period='1d', interval='1h')
+            if hist.empty:
+                continue
+            current_price = float(hist['Close'].iloc[-1])
+            
+            # Get recent market data for volatility analysis
+            if len(hist) >= 2:
+                close = hist['Close']
+                high = hist['High']
+                low = hist['Low']
+                hourly_returns = close.pct_change().dropna()
+                current_volatility = hourly_returns.tail(10).std() if len(hourly_returns) >= 10 else 0.01
+                
+                # Calculate current ATR
+                tr = []
+                for i in range(1, len(high)):
+                    tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
+                current_atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
+                current_atr_pct = current_atr / current_price if current_price > 0 else 0.005
+                
+                current_market_data = {
+                    'price': current_price,
+                    'volatility_hourly': float(current_volatility),
+                    'atr_pct': float(current_atr_pct)
+                }
+            else:
+                current_market_data = {
+                    'price': current_price,
+                    'volatility_hourly': 0.01,
+                    'atr_pct': 0.005
+                }
+        except Exception as e:
+            print(f"Error evaluating trade for {symbol}: {e}")
             continue
+            
         direction = trade['direction']
         stop = trade['stop_price']
         target = trade['target_price']
         win = False
+        is_news_driven = False
+        failure_reason = ""
+        
         if direction == 'long':
             if current_price >= target:
                 trade['status'] = 'win'
                 win = True
                 total_wins += 1
             elif current_price <= stop:
-                trade['status'] = 'loss'
+                # Check if news-driven failure
+                is_news_driven, failure_reason = detect_news_driven_failure(trade, current_market_data)
+                if is_news_driven:
+                    trade['status'] = 'loss_news_driven'
+                    trade['failure_reason'] = failure_reason
+                    total_news_losses += 1
+                else:
+                    trade['status'] = 'loss'
+                    trade['failure_reason'] = failure_reason
+                    total_losses += 1
         elif direction == 'short':
             if current_price <= target:
                 trade['status'] = 'win'
                 win = True
                 total_wins += 1
             elif current_price >= stop:
-                trade['status'] = 'loss'
+                # Check if news-driven failure
+                is_news_driven, failure_reason = detect_news_driven_failure(trade, current_market_data)
+                if is_news_driven:
+                    trade['status'] = 'loss_news_driven'
+                    trade['failure_reason'] = failure_reason
+                    total_news_losses += 1
+                else:
+                    trade['status'] = 'loss'
+                    trade['failure_reason'] = failure_reason
+                    total_losses += 1
+        
         total += 1
         
-        # Track indicator performance
+        # Track indicator performance (only count logic-driven failures against indicators)
         for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
             signal = trade.get(f'{ind}_signal', 0)
             if win:
                 if (direction == 'long' and signal > 0) or (direction == 'short' and signal < 0):
                     indicator_wins[ind] += 1
+            elif is_news_driven:
+                # Track news-driven losses separately (don't penalize indicators)
+                if (direction == 'long' and signal > 0) or (direction == 'short' and signal < 0):
+                    indicator_news_losses[ind] += 1
             else:
+                # Logic-driven failure - count against indicator
                 if (direction == 'long' and signal > 0) or (direction == 'short' and signal < 0):
                     indicator_losses[ind] += 1
     
     if total > 0:
         win_rate = total_wins / total
-        print(f"Evaluated {total} trades, win rate: {win_rate:.2%}")
+        logic_loss_rate = total_losses / total
+        news_loss_rate = total_news_losses / total
         
-        # Adjust weights per indicator
+        print(f"\n=== Trade Evaluation Results ===")
+        print(f"Evaluated {total} trades:")
+        print(f"  Wins: {total_wins} ({win_rate:.2%})")
+        print(f"  Logic-driven losses: {total_losses} ({logic_loss_rate:.2%})")
+        print(f"  News-driven losses: {total_news_losses} ({news_loss_rate:.2%})")
+        print(f"Overall win rate: {win_rate:.2%}")
+        
+        # Adjust weights per indicator (only based on logic-driven failures)
+        print("\n=== Indicator Performance (Logic-driven only) ===")
         for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
             wins = indicator_wins[ind]
             losses = indicator_losses[ind]
+            news_losses = indicator_news_losses[ind]
+            
             if wins + losses > 0:
                 ind_win_rate = wins / (wins + losses)
                 if ind_win_rate > 0.6:
@@ -1758,15 +1888,17 @@ def evaluate_trades():
                     globals()[f'{ind.upper()}_WEIGHT'] *= 0.9  # Reduce bad performers
                 if globals()[f'{ind.upper()}_WEIGHT'] < 1.0:
                     globals()[f'{ind.upper()}_WEIGHT'] = 1.0  # Neutralize underperformers
-                print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
+                
+                total_trades = wins + losses + news_losses
+                print(f"{ind.replace('_', ' ').capitalize()}: {ind_win_rate:.2%} win rate "
+                      f"({wins}W/{losses}L/{news_losses}N out of {total_trades} total), "
+                      f"new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
         
-        # Adjust overall parameters if win rate < 45%
+        # Adjust overall parameters if win rate < 45% (only considering logic-driven losses)
         if win_rate < 0.45:
             global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
             MIN_STOP_PCT *= 0.9
-            print("Adjusted: tighter stops due to low win rate (<30%).")
-            # Enable new technique if overall poor
-            # NEW_TECHNIQUE_ENABLED = True
+            print("\nAdjusted: tighter stops due to low win rate (<45%).")
             print("Consider enabling new techniques due to low performance.")
         
         # Save back
