@@ -29,6 +29,9 @@ except ImportError:
 class LLMNewsAnalyzer:
     """Analyzes news using LLM to predict market impact - OpenAI only"""
     
+    # Class constant for cache size limit
+    MAX_CACHE_SIZE = 1000
+    
     def __init__(self, provider: str = 'openai', model: Optional[str] = None):
         """
         Initialize LLM News Analyzer
@@ -40,7 +43,7 @@ class LLMNewsAnalyzer:
         self.provider = provider.lower()
         self.model = model
         self.client = None
-        self.analyzed_news_cache: deque = deque(maxlen=1000)  # Track analyzed articles (max 1000)
+        self.analyzed_news_cache: deque = deque(maxlen=self.MAX_CACHE_SIZE)  # Track analyzed articles
         self.analyzed_news_set: set = set()  # Fast O(1) lookup for duplicates
         self.cache_file = 'analyzed_news_cache.json'
         
@@ -65,10 +68,10 @@ class LLMNewsAnalyzer:
                     cache_data = json.load(f)
                     hashes = cache_data.get('hashes', [])
                     
-                    # If more than 1000 hashes, only keep the most recent 1000
-                    if len(hashes) > 1000:
-                        logger.warning(f"Cache file contains {len(hashes)} hashes, keeping only the most recent 1000")
-                        hashes = hashes[-1000:]
+                    # If more than MAX_CACHE_SIZE hashes, only keep the most recent ones
+                    if len(hashes) > self.MAX_CACHE_SIZE:
+                        logger.warning(f"Cache file contains {len(hashes)} hashes, keeping only the most recent {self.MAX_CACHE_SIZE}")
+                        hashes = hashes[-self.MAX_CACHE_SIZE:]
                     
                     # Load into deque and set
                     for h in hashes:
@@ -78,7 +81,7 @@ class LLMNewsAnalyzer:
                 logger.info(f"Loaded {len(self.analyzed_news_cache)} cached news hashes")
         except Exception as e:
             logger.error(f"Error loading news cache: {e}")
-            self.analyzed_news_cache = deque(maxlen=1000)
+            self.analyzed_news_cache = deque(maxlen=self.MAX_CACHE_SIZE)
             self.analyzed_news_set = set()
     
     def _save_cache(self):
@@ -91,7 +94,7 @@ class LLMNewsAnalyzer:
             logger.error(f"Error saving news cache: {e}")
     
     def _get_article_hash(self, article: Dict[str, str]) -> str:
-        """Generate unique hash for article to detect duplicates - using SHA256 for better collision resistance"""
+        """Generate unique hash for article to detect duplicates - using SHA-256 for better collision resistance"""
         title = article.get('title', '')
         description = article.get('description', '')
         # Create hash from title + description
@@ -108,7 +111,7 @@ class LLMNewsAnalyzer:
         article_hash = self._get_article_hash(article)
         
         # If cache is full, remove oldest item from set
-        if len(self.analyzed_news_cache) == 1000:
+        if len(self.analyzed_news_cache) == self.analyzed_news_cache.maxlen:
             oldest_hash = self.analyzed_news_cache[0]
             self.analyzed_news_set.discard(oldest_hash)
         
