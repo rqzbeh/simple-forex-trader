@@ -110,10 +110,15 @@ class LLMNewsAnalyzer:
         """Mark article as analyzed"""
         article_hash = self._get_article_hash(article)
         
-        # If cache is full, retrieve the oldest hash before it gets evicted
+        # If cache is at max capacity, retrieve the oldest hash before it gets evicted
+        # Use try-except to handle edge cases safely
         oldest_hash = None
-        if len(self.analyzed_news_cache) == self.analyzed_news_cache.maxlen:
-            oldest_hash = self.analyzed_news_cache[0]  # Get oldest before appending
+        try:
+            if len(self.analyzed_news_cache) == self.analyzed_news_cache.maxlen and len(self.analyzed_news_cache) > 0:
+                oldest_hash = self.analyzed_news_cache[0]  # Get oldest before appending
+        except (IndexError, AttributeError):
+            # Failsafe in case of unexpected state
+            pass
         
         # Add to deque (will auto-evict oldest if full)
         self.analyzed_news_cache.append(article_hash)
@@ -203,7 +208,11 @@ class LLMNewsAnalyzer:
         
         except Exception as e:
             logger.error(f"LLM analysis error: {e}")
-            return self._basic_analysis(article, symbol)
+            # Still mark as analyzed even on error to avoid repeated failures
+            result = self._basic_analysis(article, symbol)
+            self._mark_as_analyzed(article)
+            result['was_cached'] = False
+            return result
     
     def _create_analysis_prompt(self, article: Dict[str, str], symbol: str) -> str:
         """Create prompt for LLM analysis"""
