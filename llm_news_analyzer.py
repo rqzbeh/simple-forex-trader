@@ -41,6 +41,7 @@ class LLMNewsAnalyzer:
         self.model = model
         self.client = None
         self.analyzed_news_cache: deque = deque(maxlen=1000)  # Track analyzed articles (max 1000)
+        self.analyzed_news_set: set = set()  # Fast O(1) lookup for duplicates
         self.cache_file = 'analyzed_news_cache.json'
         
         # Load cached news hashes
@@ -63,13 +64,22 @@ class LLMNewsAnalyzer:
                 with open(self.cache_file, 'r') as f:
                     cache_data = json.load(f)
                     hashes = cache_data.get('hashes', [])
-                    # Load into deque (will automatically limit to maxlen)
+                    
+                    # If more than 1000 hashes, only keep the most recent 1000
+                    if len(hashes) > 1000:
+                        logger.warning(f"Cache file contains {len(hashes)} hashes, keeping only the most recent 1000")
+                        hashes = hashes[-1000:]
+                    
+                    # Load into deque and set
                     for h in hashes:
                         self.analyzed_news_cache.append(h)
+                        self.analyzed_news_set.add(h)
+                    
                 logger.info(f"Loaded {len(self.analyzed_news_cache)} cached news hashes")
         except Exception as e:
             logger.error(f"Error loading news cache: {e}")
             self.analyzed_news_cache = deque(maxlen=1000)
+            self.analyzed_news_set = set()
     
     def _save_cache(self):
         """Save analyzed news cache to disk"""
@@ -81,22 +91,30 @@ class LLMNewsAnalyzer:
             logger.error(f"Error saving news cache: {e}")
     
     def _get_article_hash(self, article: Dict[str, str]) -> str:
-        """Generate unique hash for article to detect duplicates"""
+        """Generate unique hash for article to detect duplicates - using SHA256 for better collision resistance"""
         title = article.get('title', '')
         description = article.get('description', '')
         # Create hash from title + description
         content = f"{title}|{description}"
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode()).hexdigest()
     
     def _is_already_analyzed(self, article: Dict[str, str]) -> bool:
-        """Check if article has already been analyzed"""
+        """Check if article has already been analyzed - O(1) lookup using set"""
         article_hash = self._get_article_hash(article)
-        return article_hash in self.analyzed_news_cache
+        return article_hash in self.analyzed_news_set
     
     def _mark_as_analyzed(self, article: Dict[str, str]):
         """Mark article as analyzed"""
         article_hash = self._get_article_hash(article)
-        self.analyzed_news_cache.append(article_hash)  # deque automatically removes oldest if full
+        
+        # If cache is full, remove oldest item from set
+        if len(self.analyzed_news_cache) == 1000:
+            oldest_hash = self.analyzed_news_cache[0]
+            self.analyzed_news_set.discard(oldest_hash)
+        
+        # Add to both deque and set
+        self.analyzed_news_cache.append(article_hash)
+        self.analyzed_news_set.add(article_hash)
         self._save_cache()
     
     def _init_openai(self):
