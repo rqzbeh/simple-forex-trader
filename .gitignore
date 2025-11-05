@@ -73,6 +73,7 @@ news_impact_model.pkl
 news_impact_vectorizer.pkl
 news_impact_scaler.pkl
 news_impact_last_train.json
+analyzed_news_cache.json
 
 # Test/demo data files (but not test scripts)
 test_*.pkl
