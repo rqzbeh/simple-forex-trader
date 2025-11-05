@@ -1,22 +1,41 @@
 # Forex, Commodities & Indices News Trading Bot
 
-A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis for automated trading.
+A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis and **machine learning predictions** for automated trading.
 
 ## Features
 
+- **Machine Learning Integration**: Uses scikit-learn ensemble models (Random Forest & Gradient Boosting) to predict trade outcomes
+  - Automatically trains on historical trade data
+  - Filters trades based on ML confidence and probability scores
+  - Periodic retraining every 24 hours for continuous improvement
 - **News Aggregation**: Fetches forex, commodities, and indices-related news from NewsAPI and multiple RSS feeds from authoritative sources
   - Includes 27 news sources from reputable financial outlets
   - RSS feed sources: CNBC Business, Financial Times, Wall Street Journal, MarketWatch, Bloomberg, Reuters, Forbes, and more
   - Web sources: Forex Factory, DailyFX, Investing.com, FXStreet, ForexLive, and others
 - **Sentiment Analysis**: Uses TextBlob to analyze news sentiment, with boosts for central bank and economic data sources
-- **Technical Analysis**: Incorporates Ichimoku Cloud, volume analysis, Fair Value Gaps (FVG), and candlestick patterns optimized for forex, commodities, and indices markets
+- **Advanced Technical Analysis**: Incorporates 14 key indicators optimized for forex, commodities, and indices:
+  - RSI (Relative Strength Index) - Momentum oscillator
+  - MACD (Moving Average Convergence Divergence) - Trend following
+  - Bollinger Bands - Volatility indicator
+  - Trend (EMA50 vs EMA200) - Long-term trend
+  - Advanced Candlestick Patterns - Price action
+  - OBV (On-Balance Volume) - Volume confirmation
+  - FVG (Fair Value Gaps) - Institutional levels
+  - VWAP (Volume Weighted Average Price) - Institutional benchmark
+  - Stochastic Oscillator - Momentum
+  - CCI (Commodity Channel Index) - Momentum
+  - Hurst Exponent - Trend persistence
+  - ADX (Average Directional Index) - Trend strength
+  - Williams %R - Momentum oscillator
+  - Parabolic SAR - Trend and stop placement
 - **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
 - **Automated Trading**: Integrates with forex broker APIs for automatic trade execution
-- **Risk Management**: Calculates optimal stop losses, leverage, and risk-reward ratios for forex, commodities, and indices trading
+- **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
 - **Telegram Notifications**: Sends trade recommendations via Telegram (optional)
 - **Adaptive Learning**: Evaluates past trades and adjusts indicator weights for improved performance
-- **Low Money Mode**: Optimized settings for smaller trading accounts
+- **Low Money Mode**: Optimized settings for smaller trading accounts (< $500)
+- **Backtesting**: Automatic parameter validation on 90 days of historical data
 
 ## Requirements
 
@@ -77,8 +96,14 @@ Set the following environment variables:
 
 Edit the constants in `main.py` to customize:
 
+- `ML_ENABLED`: Enable/disable machine learning predictions (default: True)
+- `ML_MIN_CONFIDENCE`: Minimum ML confidence threshold (default: 0.60)
+- `ML_MIN_PROBABILITY`: Minimum win probability from ML (default: 0.55)
+- `ML_RETRAIN_INTERVAL`: Hours between ML model retraining (default: 24)
 - `LOW_MONEY_MODE`: Set to `True` for smaller accounts (< $500)
-- `MAX_LEVERAGE_CRYPTO`: Maximum leverage for crypto trades
+- `MAX_LEVERAGE_FOREX`: Maximum leverage for forex trades (default: 50)
+- `MAX_LEVERAGE_STOCK`: Maximum leverage for stock/indices trades (default: 5)
+- `DAILY_RISK_LIMIT`: Maximum daily loss as percentage (default: 0.02 = 2%)
 - Risk parameters: `MIN_STOP_PCT`, `EXPECTED_RETURN_PER_SENTIMENT`, etc.
 
 ## Usage
@@ -109,11 +134,32 @@ The bot outputs recommended trades in the console and via Telegram, including:
 - Stop loss and take profit levels
 - Recommended leverage
 - Risk-reward ratio
+- **ML probability and confidence scores** (when ML is enabled)
+
+## Machine Learning
+
+The bot includes a sophisticated ML predictor that:
+
+1. **Trains on historical trades**: Learns from past wins and losses
+2. **Predicts trade outcomes**: Estimates probability of success for each trade
+3. **Filters low-quality trades**: Only suggests trades with high ML confidence
+4. **Continuous learning**: Retrains every 24 hours to adapt to market conditions
+
+The ML model uses ensemble methods (Random Forest + Gradient Boosting) with 21 features including:
+- Sentiment and news count
+- All 14 technical indicator signals
+- Market volatility and ATR
+- Price distance to support/resistance/pivot levels
 
 ## Files
 
 - `main.py`: Main bot script
+- `ml_predictor.py`: Machine learning prediction module
 - `trade_log.json`: Log of recommended trades (created automatically)
+- `ml_model.pkl`: Trained ML model (created after first training)
+- `ml_scaler.pkl`: Feature scaler for ML (created after first training)
+- `ml_last_train.json`: Timestamp of last ML training
+- `daily_risk.json`: Daily risk tracking
 - `README.md`: This file
 
 ## Risk Disclaimer
