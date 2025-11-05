@@ -38,8 +38,13 @@ def create_synthetic_trade_log(filename='test_trade_log.json', num_trades=100):
             llm_confidence = float(np.random.uniform(0.2, 0.6))
             llm_analysis = {'market_impact': np.random.choice(['low', 'medium'], p=[0.6, 0.4])}
         
+        # Generate valid timestamp (avoid invalid dates like Feb 30)
+        month = (i // 28) + 1
+        day = (i % 28) + 1
+        timestamp = f'2024-{month:02d}-{day:02d}T10:00:00'
+        
         trade = {
-            'timestamp': f'2024-{(i//30)+1:02d}-{(i%30)+1:02d}T10:00:00',
+            'timestamp': timestamp,
             'symbol': ['EURUSD', 'GBPUSD', 'USDJPY'][i % 3],
             'direction': 'long' if sentiment > 0 else 'short',
             'status': 'win' if is_winner else 'loss',
