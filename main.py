@@ -88,7 +88,6 @@ print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
 print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
 print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
 print(f"OPENAI_API_KEY: {'Set' if os.getenv('OPENAI_API_KEY') else 'Not set'}")
-print(f"ANTHROPIC_API_KEY: {'Set' if os.getenv('ANTHROPIC_API_KEY') else 'Not set'}")
 print(f"LLM_NEWS_ANALYSIS: {'Enabled' if os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true' else 'Disabled'}")
 
 # Initialize clients lazily when keys are present
@@ -418,9 +417,9 @@ ML_MIN_CONFIDENCE = 0.60  # Minimum confidence for ML predictions
 ML_MIN_PROBABILITY = 0.55  # Minimum win probability from ML
 ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 
-# LLM Configuration for Enhanced News Analysis
+# LLM Configuration for Enhanced News Analysis (OpenAI only)
 LLM_NEWS_ANALYSIS_ENABLED = os.getenv('LLM_NEWS_ANALYSIS_ENABLED', 'false').lower() == 'true'
-LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'openai')  # 'openai', 'anthropic', or 'local'
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'openai')  # 'openai' or 'local'
 LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects best model if None
 LLM_SENTIMENT_WEIGHT = 0.7  # Weight for LLM sentiment vs basic sentiment (0.0-1.0)
 

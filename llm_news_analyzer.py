@@ -6,7 +6,8 @@ Uses Large Language Models to deeply understand news and predict market impact
 import os
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
+import hashlib
+from typing import Dict, List, Optional, Tuple, Set
 from datetime import datetime
 
 # Setup logging
@@ -21,39 +22,83 @@ except ImportError:
     OPENAI_AVAILABLE = False
     logger.warning("OpenAI library not available. Install with: pip install openai")
 
-# Try to import Anthropic
-try:
-    import anthropic
-    ANTHROPIC_AVAILABLE = True
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
-    logger.warning("Anthropic library not available. Install with: pip install anthropic")
+# Anthropic support removed - use OpenAI only
 
 
 class LLMNewsAnalyzer:
-    """Analyzes news using LLM to predict market impact"""
+    """Analyzes news using LLM to predict market impact - OpenAI only"""
     
     def __init__(self, provider: str = 'openai', model: Optional[str] = None):
         """
         Initialize LLM News Analyzer
         
         Args:
-            provider: 'openai', 'anthropic', or 'local'
-            model: Model name (e.g., 'gpt-4', 'claude-3-sonnet-20240229')
+            provider: Only 'openai' is supported. Use 'local' for basic fallback.
+            model: Model name (e.g., 'gpt-4o-mini', 'gpt-4')
         """
         self.provider = provider.lower()
         self.model = model
         self.client = None
+        self.analyzed_news_cache: Set[str] = set()  # Track analyzed articles
+        self.cache_file = 'analyzed_news_cache.json'
+        
+        # Load cached news hashes
+        self._load_cache()
         
         # Initialize based on provider
         if self.provider == 'openai':
             self._init_openai()
-        elif self.provider == 'anthropic':
-            self._init_anthropic()
         elif self.provider == 'local':
             self._init_local()
         else:
-            logger.error(f"Unknown provider: {provider}")
+            logger.warning(f"Provider '{provider}' not supported. Only 'openai' and 'local' are available. Using fallback.")
+            self.provider = 'local'
+            self._init_local()
+    
+    def _load_cache(self):
+        """Load analyzed news cache from disk"""
+        try:
+            if os.path.exists(self.cache_file):
+                with open(self.cache_file, 'r') as f:
+                    cache_data = json.load(f)
+                    self.analyzed_news_cache = set(cache_data.get('hashes', []))
+                logger.info(f"Loaded {len(self.analyzed_news_cache)} cached news hashes")
+        except Exception as e:
+            logger.error(f"Error loading news cache: {e}")
+            self.analyzed_news_cache = set()
+    
+    def _save_cache(self):
+        """Save analyzed news cache to disk"""
+        try:
+            # Keep only the most recent 1000 hashes to prevent unlimited growth
+            if len(self.analyzed_news_cache) > 1000:
+                # Convert to list, keep last 1000, convert back to set
+                self.analyzed_news_cache = set(list(self.analyzed_news_cache)[-1000:])
+            
+            with open(self.cache_file, 'w') as f:
+                json.dump({'hashes': list(self.analyzed_news_cache)}, f)
+            logger.debug(f"Saved {len(self.analyzed_news_cache)} news hashes to cache")
+        except Exception as e:
+            logger.error(f"Error saving news cache: {e}")
+    
+    def _get_article_hash(self, article: Dict[str, str]) -> str:
+        """Generate unique hash for article to detect duplicates"""
+        title = article.get('title', '')
+        description = article.get('description', '')
+        # Create hash from title + description
+        content = f"{title}|{description}"
+        return hashlib.md5(content.encode()).hexdigest()
+    
+    def _is_already_analyzed(self, article: Dict[str, str]) -> bool:
+        """Check if article has already been analyzed"""
+        article_hash = self._get_article_hash(article)
+        return article_hash in self.analyzed_news_cache
+    
+    def _mark_as_analyzed(self, article: Dict[str, str]):
+        """Mark article as analyzed"""
+        article_hash = self._get_article_hash(article)
+        self.analyzed_news_cache.add(article_hash)
+        self._save_cache()
     
     def _init_openai(self):
         """Initialize OpenAI client"""
@@ -69,21 +114,6 @@ class LLMNewsAnalyzer:
         self.client = openai.OpenAI(api_key=api_key)
         self.model = self.model or 'gpt-4o-mini'  # Default to more affordable model
         logger.info(f"Initialized OpenAI with model: {self.model}")
-    
-    def _init_anthropic(self):
-        """Initialize Anthropic client"""
-        if not ANTHROPIC_AVAILABLE:
-            logger.error("Anthropic not available. Install with: pip install anthropic")
-            return
-        
-        api_key = os.getenv('ANTHROPIC_API_KEY')
-        if not api_key:
-            logger.warning("ANTHROPIC_API_KEY not set. LLM analysis will be disabled.")
-            return
-        
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = self.model or 'claude-3-5-sonnet-20241022'
-        logger.info(f"Initialized Anthropic with model: {self.model}")
     
     def _init_local(self):
         """Initialize local LLM (placeholder for future implementation)"""
@@ -106,7 +136,23 @@ class LLMNewsAnalyzer:
             - time_horizon: 'immediate', 'short_term', 'long_term'
             - confidence: 0.0 to 1.0
             - reasoning: Text explanation
+            - was_cached: True if result was from cache
         """
+        # Check if already analyzed
+        if self._is_already_analyzed(article):
+            logger.info(f"Skipping duplicate article: {article.get('title', 'Unknown')[:50]}...")
+            return {
+                'sentiment_score': 0.0,
+                'market_impact': 'low',
+                'affected_instruments': [],
+                'time_horizon': 'short_term',
+                'confidence': 0.0,
+                'reasoning': 'Article already analyzed (duplicate)',
+                'people_impact': 'Already processed',
+                'market_mechanism': 'Duplicate detection',
+                'was_cached': True
+            }
+        
         if not self.client:
             # Fallback to basic analysis
             return self._basic_analysis(article, symbol)
@@ -115,13 +161,15 @@ class LLMNewsAnalyzer:
             # Prepare prompt
             prompt = self._create_analysis_prompt(article, symbol)
             
-            # Call LLM based on provider
+            # Call LLM - only OpenAI is supported now
             if self.provider == 'openai':
                 response = self._call_openai(prompt)
-            elif self.provider == 'anthropic':
-                response = self._call_anthropic(prompt)
             else:
                 response = self._basic_analysis(article, symbol)
+            
+            # Mark as analyzed
+            self._mark_as_analyzed(article)
+            response['was_cached'] = False
             
             return response
         
@@ -193,31 +241,6 @@ Return ONLY valid JSON, no additional text."""
             return self._default_result()
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
-            return self._default_result()
-    
-    def _call_anthropic(self, prompt: str) -> Dict:
-        """Call Anthropic API"""
-        try:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=500,
-                temperature=0.3,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            content = message.content[0].text
-            result = json.loads(content)
-            
-            # Validate and normalize result
-            return self._normalize_result(result)
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Anthropic returned invalid JSON: {e}")
-            return self._default_result()
-        except Exception as e:
-            logger.error(f"Anthropic API error: {e}")
             return self._default_result()
     
     def _basic_analysis(self, article: Dict[str, str], symbol: str) -> Dict:
@@ -373,7 +396,7 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     Get or create global LLM analyzer instance
     
     Args:
-        provider: 'openai', 'anthropic', or 'local'
+        provider: Only 'openai' or 'local' supported
         model: Model name
     
     Returns:
@@ -385,8 +408,6 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     if provider is None:
         if os.getenv('OPENAI_API_KEY'):
             provider = 'openai'
-        elif os.getenv('ANTHROPIC_API_KEY'):
-            provider = 'anthropic'
         else:
             provider = 'local'  # Fallback
     
