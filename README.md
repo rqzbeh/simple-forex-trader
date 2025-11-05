@@ -173,19 +173,59 @@ The bot outputs recommended trades in the console and via Telegram, including:
 
 ## Machine Learning
 
-The bot includes a sophisticated ML predictor that:
+The bot includes TWO sophisticated ML systems working together:
+
+### ML System 1: Trade Predictor (ml_predictor.py)
+Optimizes analytical trading decisions and learns from past performance:
 
 1. **Trains on historical trades**: Learns from past wins and losses
 2. **Predicts trade outcomes**: Estimates probability of success for each trade
 3. **Filters low-quality trades**: Only suggests trades with high ML confidence
 4. **Continuous learning**: Retrains every 24 hours to adapt to market conditions
+5. **Indicator weight optimization**: Adjusts technical indicator weights based on performance
 
 The ML model uses ensemble methods (Random Forest + Gradient Boosting) with 23 features including:
 - Sentiment and news count
 - All 14 technical indicator signals
 - Market volatility and ATR
 - Price distance to support/resistance/pivot levels
-- LLM confidence and market impact scores (when LLM enabled)
+- LLM confidence and market impact scores
+- Psychology irrationality scores and fear/greed index
+
+### ML System 2: Failure Classifier (news_impact_predictor.py)
+Classifies trade failures to improve learning:
+
+1. **Determines failure cause**: Identifies if failure was due to:
+   - **Analytical**: Technical indicators were wrong (fundamental issue)
+   - **Emotional**: Market psychology/news-driven behavior caused unexpected moves
+   - **Mixed**: Combination of both factors
+
+2. **Feeds learning**: Routes failures to appropriate learning system:
+   - Analytical failures → ML System 1 learns better indicator weighting
+   - Emotional failures → AI Performance Tracker learns better psychology analysis
+
+3. **Considers multiple factors**:
+   - Technical indicator agreement rate
+   - News volume and sentiment strength
+   - Psychology irrationality scores
+   - Volatility patterns suggesting emotional moves
+
+### AI Performance Tracker (NEW)
+Learns from emotional/psychology-driven failures to improve AI analysis:
+
+1. **Tracks AI accuracy**: Monitors when psychology analysis was correct vs incorrect
+2. **Pattern recognition**: Identifies which emotions (fear, greed, panic, euphoria) AI misjudges
+3. **Confidence weighting**: Adjusts how much to trust AI psychology recommendations
+   - Success rate > 65% → increase AI confidence weight up to 1.5x
+   - Success rate < 45% → decrease AI confidence weight down to 0.5x
+4. **Prompt improvement**: Suggests better API prompts based on failure patterns
+5. **Performance statistics**: Shows success rate, failure patterns, and improvements
+
+**Why Two ML Systems?**
+- Technical analysis and human psychology require different learning approaches
+- ML trained on price patterns excels at technical analysis
+- LLM pre-trained on human language excels at understanding emotions
+- Combining both creates a complete trading system that handles rational AND irrational markets
 
 ## LLM-Enhanced News Analysis
 

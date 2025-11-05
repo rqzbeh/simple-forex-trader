@@ -1739,9 +1739,26 @@ def log_trades(results):
             'hurst_signal': r.get('hurst_signal', 0),
             'adx_signal': r.get('adx_signal', 0),
             'williams_r_signal': r.get('williams_r_signal', 0),
-            'sar_signal': r.get('sar_signal', 0)
+            'sar_signal': r.get('sar_signal', 0),
+            'entry_sentiment': r.get('avg_sentiment', 0),
+            'entry_news_count': r.get('news_count', 0),
+            'volatility_hourly': r.get('volatility_hourly', 0),
+            'atr_pct': r.get('atr_pct', 0),
+            'psychology': r.get('psychology')
         }
         logs.append(trade)
+        
+        # Record with AI performance tracker if psychology was used
+        psychology = r.get('psychology')
+        if psychology and psychology.get('irrationality_score', 0) > 0.4:
+            try:
+                from ai_performance_tracker import get_ai_performance_tracker
+                ai_tracker = get_ai_performance_tracker()
+                ai_tracker.record_trade_with_psychology(trade, psychology)
+            except Exception as e:
+                if DEBUG:
+                    print(f"Could not record AI performance: {e}")
+        
         # Update daily risk
         trade_risk = stop_pct * r['recommended_leverage']
         update_daily_risk(trade_risk)
@@ -1796,6 +1813,57 @@ def evaluate_trades():
             elif current_price >= stop:
                 trade['status'] = 'loss'
         total += 1
+        
+        # Classify failure type if it was a loss
+        if not win and trade['status'] == 'loss':
+            try:
+                # Import here to avoid circular dependencies
+                from news_impact_predictor import get_news_impact_predictor
+                from ai_performance_tracker import get_ai_performance_tracker
+                
+                impact_predictor = get_news_impact_predictor()
+                ai_tracker = get_ai_performance_tracker()
+                
+                # Get current market data for comparison
+                market_data = {
+                    'price': current_price,
+                    'direction': direction,
+                    'stop': stop,
+                    'target': target
+                }
+                
+                # Classify failure type
+                psychology_data = trade.get('psychology')
+                classification = impact_predictor.classify_failure_type(
+                    trade, market_data, psychology_data
+                )
+                
+                # Store classification in trade log
+                trade['failure_classification'] = classification
+                trade['failure_type'] = classification['failure_type']
+                
+                # If it was emotional failure and psychology was used, evaluate AI performance
+                if classification['failure_type'] in ['emotional', 'mixed'] and psychology_data:
+                    outcome_data = {
+                        'won': False,
+                        'current_price': current_price,
+                        'price_movement': abs(current_price - trade['entry_price']) / trade['entry_price']
+                    }
+                    
+                    ai_analysis = ai_tracker.evaluate_trade_outcome(
+                        trade, outcome_data, classification['failure_type']
+                    )
+                    
+                    trade['ai_analysis'] = ai_analysis
+                    
+                    if DEBUG:
+                        print(f"  AI Performance: {classification['failure_type']} failure for {symbol}")
+                        if ai_analysis.get('improvements'):
+                            print(f"    Improvements: {'; '.join(ai_analysis['improvements'][:2])}")
+                            
+            except Exception as e:
+                if DEBUG:
+                    print(f"  Error in failure classification: {e}")
         
         # Track indicator performance
         for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
@@ -2480,6 +2548,18 @@ async def main(backtest_only=False):
             print(f"ML training error: {e}")
     
     print_current_parameters()  # Show updated parameters after adjustments
+    
+    # Show AI psychology performance if available
+    try:
+        from ai_performance_tracker import get_ai_performance_tracker
+        ai_tracker = get_ai_performance_tracker()
+        stats = ai_tracker.get_statistics()
+        
+        if stats['emotion_driven_trades'] > 0:
+            ai_tracker.print_statistics()
+    except Exception as e:
+        if DEBUG:
+            print(f"Could not load AI performance statistics: {e}")
 
     if not results:
         message = 'No actionable forex, commodities, or indices trades found at this time.'

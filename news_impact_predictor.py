@@ -390,6 +390,111 @@ class NewsImpactPredictor:
             'ml_prediction': ml_prediction,
             'reason': reason
         }
+    
+    def classify_failure_type(self, trade_data, market_data, psychology_data=None):
+        """
+        Classify if trade failure was analytical or emotional/news-driven
+        
+        Args:
+            trade_data: Dict with trade info (signals, sentiment, etc.)
+            market_data: Current market data to compare with expectations
+            psychology_data: Optional psychology analysis data
+        
+        Returns:
+            Dict with:
+                - failure_type: 'analytical', 'emotional', or 'mixed'
+                - confidence: How confident we are in the classification
+                - reason: Explanation
+                - emotional_factors: List of emotional factors if applicable
+                - analytical_factors: List of analytical factors if applicable
+        """
+        analytical_factors = []
+        emotional_factors = []
+        
+        # Check if technical indicators failed
+        direction = trade_data.get('direction')
+        signals = {
+            'rsi': trade_data.get('rsi_signal', 0),
+            'macd': trade_data.get('macd_signal', 0),
+            'bb': trade_data.get('bb_signal', 0),
+            'trend': trade_data.get('trend_signal', 0),
+            'stoch': trade_data.get('stoch_signal', 0),
+            'cci': trade_data.get('cci_signal', 0),
+            'adx': trade_data.get('adx_signal', 0),
+        }
+        
+        # Count how many indicators agreed with trade direction
+        if direction == 'long':
+            agreeing_signals = sum(1 for s in signals.values() if s > 0)
+        else:
+            agreeing_signals = sum(1 for s in signals.values() if s < 0)
+        
+        total_signals = len(signals)
+        agreement_rate = agreeing_signals / total_signals if total_signals > 0 else 0
+        
+        # If most indicators were wrong, it's analytical failure
+        if agreement_rate < 0.3:
+            analytical_factors.append(f"Low indicator agreement: {agreement_rate:.0%}")
+        elif agreement_rate > 0.7:
+            # Most indicators agreed but still failed - likely emotional override
+            analytical_factors.append(f"Strong indicator agreement ({agreement_rate:.0%}) suggests technical setup was good")
+        
+        # Check sentiment/news factors
+        sentiment = trade_data.get('entry_sentiment', 0) or trade_data.get('avg_sentiment', 0)
+        news_count = trade_data.get('entry_news_count', 0) or trade_data.get('news_count', 0)
+        
+        if abs(sentiment) > 0.6 and news_count > 3:
+            emotional_factors.append(f"Strong sentiment ({sentiment:.2f}) with high news volume ({news_count})")
+        
+        # Check psychology data if available
+        if psychology_data:
+            irrationality = psychology_data.get('irrationality_score', 0)
+            fear_greed = psychology_data.get('fear_greed_index', 0)
+            emotion = psychology_data.get('dominant_emotion', 'neutral')
+            
+            if irrationality > 0.6:
+                emotional_factors.append(f"High irrationality detected: {irrationality:.2f}")
+            
+            if abs(fear_greed) > 0.7:
+                emotion_type = 'extreme fear' if fear_greed < 0 else 'extreme greed'
+                emotional_factors.append(f"{emotion_type.title()} dominated market")
+            
+            if emotion in ['panic', 'euphoria']:
+                emotional_factors.append(f"{emotion.title()} emotion detected")
+        
+        # Check for news-driven volatility
+        volatility = trade_data.get('volatility_hourly', 0)
+        atr_pct = trade_data.get('atr_pct', 0)
+        
+        if volatility > 0.015 or atr_pct > 0.01:
+            emotional_factors.append(f"High volatility suggests emotional/news-driven moves")
+        
+        # Classify based on factors
+        emotional_score = len(emotional_factors)
+        analytical_score = len(analytical_factors)
+        
+        if emotional_score > analytical_score * 2:
+            failure_type = 'emotional'
+            confidence = min(0.9, 0.5 + emotional_score * 0.1)
+            reason = "Trade failure primarily due to emotional/news-driven market behavior"
+        elif analytical_score > emotional_score * 2:
+            failure_type = 'analytical'
+            confidence = min(0.9, 0.5 + analytical_score * 0.1)
+            reason = "Trade failure primarily due to incorrect technical analysis"
+        else:
+            failure_type = 'mixed'
+            confidence = 0.6
+            reason = "Trade failure due to combination of analytical and emotional factors"
+        
+        return {
+            'failure_type': failure_type,
+            'confidence': confidence,
+            'reason': reason,
+            'emotional_factors': emotional_factors,
+            'analytical_factors': analytical_factors,
+            'emotional_score': emotional_score,
+            'analytical_score': analytical_score
+        }
 
 
 # Global news impact predictor instance
