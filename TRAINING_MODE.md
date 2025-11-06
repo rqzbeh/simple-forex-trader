@@ -4,6 +4,20 @@
 
 Training Mode is a specialized mode designed to collect high-quality data for training the machine learning models. It focuses exclusively on technical analysis while intelligently filtering out noise from emotional market movements.
 
+**Key Distinction from Backtesting:**
+- **Backtesting** = Fast simulation on historical data (90 days in minutes) to validate parameters
+- **Training Mode** = Real trades over time, uses ACTUAL market price data to determine outcomes
+
+**Training Mode Process:**
+1. Generate trade signal based on technical indicators
+2. Log trade to file with entry price, stop loss, take profit
+3. Wait (sleep) for 30 minutes
+4. Check historical price data to see if trade hit stop loss or take profit
+5. Record actual outcome (win/loss) based on what market REALLY did
+6. Train ML models on real results
+
+**Yes, we use REAL data:** Training mode fetches actual historical prices from data providers (yfinance, etc.) to determine if trades would have hit TP/SL. This is NOT simulated - it's what actually happened in the markets.
+
 ## Quick Start
 
 ```bash

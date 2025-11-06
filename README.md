@@ -251,13 +251,24 @@ In training mode, psychology data is collected but NOT used to adjust trade deci
 
 **To stop training mode**: Press `Ctrl+C`
 
-### Backtest Mode
+### Backtest Mode (Quick Parameter Validation)
 
-Run historical backtesting:
+Backtesting simulates trades on 90 days of historical data to validate and auto-tune parameters. This is different from Training Mode:
+
+- **Backtest**: Fast validation (runs in minutes), simulates what WOULD have happened
+- **Training Mode**: Real trades over time (takes days/weeks), learns from what ACTUALLY happened
+
+Run backtest-only mode:
 
 ```bash
 python main.py --backtest
 ```
+
+**Note:** Backtesting is still useful even with Training Mode because:
+1. Provides immediate feedback on parameter quality (don't wait weeks for training data)
+2. Tests parameters on diverse market conditions (90 days of data)
+3. Helps optimize parameters before running live/training mode
+4. Training mode is disabled during backtesting to focus solely on parameter validation
 
 ## Output
 
@@ -270,7 +281,11 @@ The bot outputs recommended trading signals in the console and via Telegram, inc
 - Risk-reward ratio
 - **ML probability and confidence scores** (when ML is enabled and trained)
 
-Signals are also logged to `trade_log.json` and automatically evaluated on next run to check if they hit TP/SL using real historical data.
+Signals are also logged to `trade_log.json` and automatically evaluated on next run to check if they hit TP/SL using **real historical price data** (not simulated). This means:
+- The bot fetches actual market prices from the time the trade was created
+- Checks if stop-loss or take-profit was actually hit based on real price movements
+- No broker connection needed - uses publicly available historical data
+- ML learns from what markets ACTUALLY did, not simulated/fake data
 
 ## Machine Learning
 
