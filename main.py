@@ -259,7 +259,7 @@ FOREX_SYMBOL_MAP = {
     'COPPER': 'HG=F',  # Copper
     'PLATINUM': 'PL=F', # Platinum
     'PALLADIUM': 'PA=F', # Palladium
-    # 'NATURALGAS': 'NG=F', # Natural Gas - REMOVED: Often has insufficient hourly data or delisting issues
+    # 'NATURALGAS': 'NG=F', # REMOVED 2025-01: User reported frequent "possibly delisted" errors and insufficient data
     'CORN': 'ZC=F',    # Corn
     'WHEAT': 'ZW=F',   # Wheat
     'SOYBEANS': 'ZS=F', # Soybeans
@@ -541,6 +541,13 @@ def get_news():
 def normalize_text(s: str) -> str:
     return (s or '').upper()
 
+# Common cryptocurrency symbols to exclude from news extraction
+# These don't have reliable yfinance data and cause "possibly delisted" errors
+CRYPTO_SYMBOLS = {'BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 
+                  'DOT', 'MATIC', 'TRX', 'AVAX', 'LINK', 'UNI', 'LTC', 
+                  'ATOM', 'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'XMR',
+                  'ETC', 'AAVE', 'MKR', 'COMP', 'SUSHI', 'YFI', 'SNX'}
+
 # --- REPLACE your extract_crypto_and_tickers() with this version ---
 def extract_forex_and_tickers(text: str):
     """
@@ -554,11 +561,6 @@ def extract_forex_and_tickers(text: str):
     found = {}
  
     # 1) $TICKER patterns (common in forex/news posts)
-    # Common cryptocurrency symbols to exclude (they don't have reliable yfinance data)
-    CRYPTO_SYMBOLS = {'BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 
-                      'DOT', 'MATIC', 'TRX', 'AVAX', 'LINK', 'UNI', 'LTC', 
-                      'ATOM', 'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'XMR',
-                      'ETC', 'AAVE', 'MKR', 'COMP', 'SUSHI', 'YFI', 'SNX'}
     
     for m in re.findall(r'\$([A-Z]{3,7})\b', text_u):
         key = m.upper()
@@ -623,12 +625,16 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
         hist_daily = ticker.history(period='30d', interval='1d')
         if hist_hourly.empty or len(hist_hourly) < 26 or hist_daily.empty or len(hist_daily) < 2:
             # Silently skip symbols with insufficient data to reduce terminal spam
+            if DEBUG:
+                print(f'DEBUG: Insufficient data for {yf_symbol} (H:{len(hist_hourly)}, D:{len(hist_daily)})')
             return None
 
         # Skip delisted or low-volume symbols (stricter for stocks)
         avg_volume = hist_hourly['Volume'].tail(10).mean()
         if kind == 'stock' and avg_volume < 10000:  # Higher threshold for stocks
             # Silently skip low-volume stocks
+            if DEBUG:
+                print(f'DEBUG: Low volume for {yf_symbol} (avg: {avg_volume:.0f})')
             return None
         # For forex, skip volume check as it may be low but data is valid
 

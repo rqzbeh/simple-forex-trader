@@ -4,12 +4,26 @@ Minimal test to verify symbol filtering logic without loading the full main modu
 """
 
 import re
+import sys
+import os
 
-# Cryptocurrency symbols to filter (same as in main.py)
-CRYPTO_SYMBOLS = {'BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 
-                  'DOT', 'MATIC', 'TRX', 'AVAX', 'LINK', 'UNI', 'LTC', 
-                  'ATOM', 'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'XMR',
-                  'ETC', 'AAVE', 'MKR', 'COMP', 'SUSHI', 'YFI', 'SNX'}
+# Try to import CRYPTO_SYMBOLS from main, otherwise define it locally
+try:
+    # Temporarily set environment variable to avoid import error
+    os.environ['NEWS_API_KEY'] = 'test_key_for_import'
+    os.environ['GROQ_API_KEY'] = 'test_key_for_import'
+    
+    from main import CRYPTO_SYMBOLS as IMPORTED_CRYPTO_SYMBOLS
+    CRYPTO_SYMBOLS = IMPORTED_CRYPTO_SYMBOLS
+    CRYPTO_IMPORTED = True
+except (ImportError, ValueError) as e:
+    # Fallback: define locally (for environments where main.py can't be imported)
+    CRYPTO_SYMBOLS = {'BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 
+                      'DOT', 'MATIC', 'TRX', 'AVAX', 'LINK', 'UNI', 'LTC', 
+                      'ATOM', 'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'XMR',
+                      'ETC', 'AAVE', 'MKR', 'COMP', 'SUSHI', 'YFI', 'SNX'}
+    CRYPTO_IMPORTED = False
+    print(f"Note: Could not import CRYPTO_SYMBOLS from main.py ({e}), using local definition")
 
 def test_crypto_filtering_logic():
     """Test that the crypto filtering logic works correctly"""
