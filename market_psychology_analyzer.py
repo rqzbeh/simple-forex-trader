@@ -248,12 +248,20 @@ Return ONLY valid JSON, no additional text."""
 _psychology_analyzer = None
 
 
-def get_psychology_analyzer() -> MarketPsychologyAnalyzer:
-    """Get or create global psychology analyzer instance"""
+def get_psychology_analyzer(model: str = None) -> MarketPsychologyAnalyzer:
+    """
+    Get or create global psychology analyzer instance
+    
+    Args:
+        model: Model name (defaults to LLM_MODEL environment variable if not provided)
+    """
     global _psychology_analyzer
     if _psychology_analyzer is None:
         try:
-            _psychology_analyzer = MarketPsychologyAnalyzer()
+            # Use LLM_MODEL environment variable if model not explicitly provided
+            if model is None:
+                model = os.getenv('LLM_MODEL')
+            _psychology_analyzer = MarketPsychologyAnalyzer(model=model)
         except Exception as e:
             logger.error(f"Failed to initialize psychology analyzer: {e}")
             raise

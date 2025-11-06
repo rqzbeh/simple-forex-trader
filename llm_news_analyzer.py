@@ -433,7 +433,7 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
     
     Args:
         provider: Only 'groq' is supported
-        model: Model name
+        model: Model name (defaults to LLM_MODEL environment variable if not provided)
     
     Returns:
         LLMNewsAnalyzer instance
@@ -446,6 +446,10 @@ def get_llm_analyzer(provider: str = None, model: str = None) -> LLMNewsAnalyzer
             provider = 'groq'
         else:
             raise ValueError("GROQ_API_KEY environment variable must be set")
+    
+    # Use LLM_MODEL environment variable if model not explicitly provided
+    if model is None:
+        model = os.getenv('LLM_MODEL')
     
     if _llm_analyzer is None:
         _llm_analyzer = LLMNewsAnalyzer(provider=provider, model=model)
