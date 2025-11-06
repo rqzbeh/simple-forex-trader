@@ -183,7 +183,14 @@ class NewsImpactPredictor:
             'entry_news_count': 5,
             'entry_sentiment': 0.3,
             'news_articles': [...]  # Optional: saved news at entry
+            'training_mode': True/False  # Can train on this too!
+            'psychology': {...}  # Psychology data available
         }
+        
+        In training mode, we CAN train this model because:
+        - We still collect psychology data
+        - We can learn how psychology/news WOULD HAVE affected the trade
+        - This improves the model for when we USE psychology in normal mode
         """
         if not os.path.exists(trade_log_file):
             logger.warning(f"Trade log file {trade_log_file} not found")
@@ -201,6 +208,8 @@ class NewsImpactPredictor:
         X = []
         y = []
         texts = []
+        training_mode_count = 0
+        normal_mode_count = 0
         
         for trade in trades:
             status = trade.get('status', 'open')
@@ -209,9 +218,20 @@ class NewsImpactPredictor:
             if status == 'open':
                 continue
             
+            # Count training vs normal mode trades
+            if trade.get('training_mode', False):
+                training_mode_count += 1
+            else:
+                normal_mode_count += 1
+            
             # Create synthetic text from available data for training
             news_count = trade.get('entry_news_count', 0)
             sentiment = trade.get('entry_sentiment', 0)
+            
+            # Get psychology features if available
+            psychology = trade.get('psychology', {})
+            irrationality = psychology.get('irrationality_score', 0) if psychology else 0
+            fear_greed = psychology.get('fear_greed_index', 0) if psychology else 0
             
             # Simple feature vector based on available data
             features = [
@@ -220,20 +240,29 @@ class NewsImpactPredictor:
                 sentiment * news_count,  # Interaction term
                 1 if sentiment > 0 else 0,  # Positive sentiment flag
                 1 if sentiment < 0 else 0,  # Negative sentiment flag
+                irrationality,  # Psychology irrationality
+                fear_greed,  # Fear/greed index
+                abs(fear_greed) * irrationality,  # Emotion intensity
             ]
             
-            # Pad to match expected feature count (100 TF-IDF + 5 category + 2 aggregate)
-            features.extend([0] * (100 + 5 + 2 - len(features)))
+            # Expected total features: 100 TF-IDF + 5 category + 2 aggregate + 3 psychology = 110
+            # Current features: 8, so pad with 102 zeros
+            target_feature_count = 110
+            padding_needed = target_feature_count - len(features)
+            features.extend([0] * padding_needed)
             
             X.append(features)
             
-            # Label: 1 if news-driven failure, 0 otherwise
-            # This trains the model to predict when news will cause failures
-            label = 1 if status == 'loss_news_driven' else 0
+            # Label: 1 if news/emotion-driven failure, 0 otherwise
+            # Check if failure was classified as emotional or mixed
+            failure_type = trade.get('failure_type', 'analytical')
+            label = 1 if failure_type in ['emotional', 'mixed'] else 0
             y.append(label)
             
             # Collect text for future TF-IDF training (placeholder)
-            texts.append(f"news_count_{news_count} sentiment_{sentiment}")
+            texts.append(f"news_count_{news_count} sentiment_{sentiment} irrationality_{irrationality}")
+        
+        logger.info(f"Training News Impact ML on {len(X)} trades ({training_mode_count} from training mode, {normal_mode_count} from normal mode)")
         
         if len(X) < self.min_training_samples:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")

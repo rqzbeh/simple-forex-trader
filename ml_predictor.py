@@ -130,10 +130,16 @@ class MLTradingPredictor:
         y = []
         sample_weights = []
         current_time = datetime.now()
+        excluded_count = 0
         
         for trade in trades:
             # Skip open trades
             if trade.get('status') == 'open':
+                continue
+            
+            # Skip trades marked as excluded from training (emotional failures in training mode)
+            if trade.get('excluded_from_training', False):
+                excluded_count += 1
                 continue
             
             # Extract features
@@ -155,6 +161,9 @@ class MLTradingPredictor:
             except (ValueError, TypeError):
                 # If timestamp parsing fails, use default weight
                 sample_weights.append(1.0)
+        
+        if excluded_count > 0:
+            logger.info(f"Excluded {excluded_count} emotional/mixed failures from training (marked in training mode)")
         
         if len(X) < self.min_training_samples:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")
