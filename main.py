@@ -13,32 +13,11 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
 import yfinance as yf
-from alpha_vantage.foreignexchange import ForeignExchange
-from iexfinance.stocks import Stock
-try:
-    from polygon import RESTClient as PolygonRESTClient
-except ImportError:
-    PolygonRESTClient = None
 
-try:
-    from twelvedata import TDClient
-except ImportError:
-    TDClient = None
-
-try:
-    from fmp_python.fmp import FMP
-except ImportError:
-    FMP = None
-
-try:
-    import quandl
-except ImportError:
-    quandl = None
-
-try:
-    from fredapi import Fred
-except ImportError:
-    Fred = None
+# Data provider: ONLY yfinance (provides all 14 indicators calculated from real historical data)
+# REMOVED: Polygon, TwelveData - only provided 4/14 indicators, returned 0 for others which diluted signal strength
+# REMOVED: Alpha Vantage, IEX, FMP, Quandl, FRED - returned placeholder/fake data
+# yfinance is sufficient and provides the most complete, accurate data
 
 try:
     from ml_predictor import get_ml_predictor
@@ -85,15 +64,12 @@ NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 if not NEWS_API_KEY:
     raise ValueError('Please set the NEWS_API_KEY environment variable')
 
-ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')  # Optional, for backup data
-IEX_API_TOKEN = os.getenv('IEX_API_TOKEN')  # Optional, for IEX Cloud data
+ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')  # REMOVED - not used anymore
+IEX_API_TOKEN = os.getenv('IEX_API_TOKEN')  # REMOVED - not used anymore
 
-# New API keys (optional) - set these if you want additional free-data fallbacks
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
-TWELVE_DATA_API_KEY = os.getenv('TWELVE_DATA_API_KEY')
-FMP_API_KEY = os.getenv('FMP_API_KEY')
-QUANDL_API_KEY = os.getenv('QUANDL_API_KEY')
-FRED_API_KEY = os.getenv('FRED_API_KEY')
+# No additional API keys needed - yfinance is free and sufficient
+# REMOVED: POLYGON_API_KEY, TWELVE_DATA_API_KEY - these providers only calculated 4/14 indicators
+#          and returned 0 for missing ones, which diluted signal strength and messed up analytics
 
 # Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
 # Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
@@ -103,24 +79,11 @@ GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
 
 print("API Keys status:")
 print(f"NEWS_API_KEY: {'Set' if NEWS_API_KEY else 'Not set'}")
-print(f"ALPHA_VANTAGE_API_KEY: {'Set' if ALPHA_VANTAGE_API_KEY else 'Not set'}")
-print(f"POLYGON_API_KEY: {'Set' if POLYGON_API_KEY else 'Not set'}")
-print(f"TWELVE_DATA_API_KEY: {'Set' if TWELVE_DATA_API_KEY else 'Not set'}")
-print(f"FMP_API_KEY: {'Set' if FMP_API_KEY else 'Not set'}")
-print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
-print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
-print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
 print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set (REQUIRED)'}")
 print(f"Groq Rate Limits: {'Disabled' if not GROQ_ENFORCE_LIMITS else f'{GROQ_MAX_REQUESTS_PER_DAY} req/day, {GROQ_MAX_TOKENS_PER_DAY} tokens/day'}")
-
-
-# Initialize clients lazily when keys are present
-_polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY else None
-_td_client = TDClient(apikey=TWELVE_DATA_API_KEY) if TWELVE_DATA_API_KEY else None
-_fmp_client = FMP(FMP_API_KEY) if FMP_API_KEY and FMP else None
-if QUANDL_API_KEY:
-    quandl.ApiConfig.api_key = QUANDL_API_KEY
-_fred_client = Fred(api_key=FRED_API_KEY) if FRED_API_KEY else None
+print()
+print("Data provider: yfinance only (free, complete, accurate)")
+print("Removed: All other providers (incomplete indicators or fake/placeholder data)")
 
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
@@ -459,10 +422,8 @@ LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile
 PSYCHOLOGY_ANALYSIS_ENABLED = os.getenv('PSYCHOLOGY_ANALYSIS_ENABLED', 'true').lower() == 'true'
 PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_THRESHOLD', '0.6'))  # Adjust trades when irrationality > this
 
-# Backtesting configuration
-BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
-BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
-BACKTEST_ADJUST_THRESHOLD = 0.55  # More realistic win rate threshold (55%) for adjustments
+# Backtesting configuration - REMOVED (we only use real trade data, no simulated/fake data)
+# Backtesting has been completely removed. All parameter tuning uses real trade outcomes via evaluate_trades()
 
 # Indicator weights (optimized based on backtesting and industry research)
 RSI_WEIGHT = 1.3  # RSI is highly reliable
@@ -860,467 +821,7 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
         print(f'yfinance fetch error for {yf_symbol}: {e}')
         return None
 
-@lru_cache(maxsize=100)
-def _get_alpha_vantage_data(yf_symbol):
-    """Get forex data from Alpha Vantage."""
-    if not ALPHA_VANTAGE_API_KEY:
-        return None
-    try:
-        fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
-        # Assume yf_symbol like 'EURUSD=X', extract 'EUR' and 'USD'
-        from_currency = yf_symbol[:3]
-        to_currency = yf_symbol[3:6]
-        data, _ = fx.get_currency_exchange_rate(from_currency=from_currency, to_currency=to_currency)
-        current_price = float(data['5. Exchange Rate'])
-        # Alpha Vantage doesn't provide historical data easily, so basic price only
-        # For indicators, we'd need intraday, but free tier limits
-        # Return minimal data
-        return {
-            'price': current_price,
-            'volatility_hourly': 0.01,  # Placeholder
-            'atr_pct': 0.005,  # Placeholder
-            'pivot': current_price,  # Placeholder
-            'r1': current_price * 1.01, 'r2': current_price * 1.02,
-            's1': current_price * 0.99, 's2': current_price * 0.98,
-            'support': current_price * 0.98,
-            'resistance': current_price * 1.02,
-            'psych_level': round(current_price),
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0,
-            'hurst_signal': 0,
-            'adx_signal': 0,
-            'williams_r_signal': 0,
-            'sar_signal': 0
-        }
-    except Exception as e:
-        print(f'Alpha Vantage fetch error for {yf_symbol}: {e}')
-        return None
-@lru_cache(maxsize=100)
-def _get_iex_data(yf_symbol):
-    """Get stock data from IEX Cloud."""
-    if not IEX_API_TOKEN:
-        return None
-    try:
-        stock = Stock(yf_symbol.replace('=X', ''), token=IEX_API_TOKEN)
-        quote = stock.get_quote()
-        current_price = quote['latestPrice']
-        # IEX provides quote, but for historical, need chart
-        # Placeholder for now
-        return {
-            'price': current_price,
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': current_price,
-            'r1': current_price * 1.01, 'r2': current_price * 1.02,
-            's1': current_price * 0.99, 's2': current_price * 0.98,
-            'support': current_price * 0.98,
-            'resistance': current_price * 1.02,
-            'psych_level': round(current_price),
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0,
-            'hurst_signal': 0,
-            'adx_signal': 0,
-            'williams_r_signal': 0,
-            'sar_signal': 0
-        }
-    except Exception as e:
-        print(f'IEX Cloud fetch error for {yf_symbol}: {e}')
-        return None
 
-
-@lru_cache(maxsize=100)
-def _get_polygon_data(yf_symbol):
-    """Get data from Polygon with full indicators."""
-    if not POLYGON_API_KEY or not _polygon_client:
-        return None
-    try:
-        symbol = yf_symbol.replace('=X', '')
-        # For forex, Polygon uses 'C:EURUSD' format
-        if len(symbol) == 6 and symbol.isalpha():
-            symbol = f'C:{symbol[:3]}{symbol[3:]}'
-        # Fetch 1h aggregates for last 3 days
-        from datetime import datetime, timedelta
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=3)
-        aggs = _polygon_client.get_aggs(symbol, 1, 'hour', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-        if not aggs or len(aggs) < 26:
-            return None
-        # Convert to DataFrame-like
-        import pandas as pd
-        df = pd.DataFrame([{'Close': a.close, 'High': a.high, 'Low': a.low, 'Open': a.open, 'Volume': a.volume} for a in aggs])
-        if df.empty or len(df) < 26:
-            print(f'Polygon insufficient data for {yf_symbol}')
-            return None
-        close = df['Close'].dropna()
-        high = df['High'].dropna()
-        low = df['Low'].dropna()
-        volume = df['Volume'].dropna()
-        current_price = float(close.iloc[-1])
-
-        # Compute indicators like yfinance
-        hourly_returns = close.pct_change().dropna()
-        vol_hourly = hourly_returns.std()
-        tr = []
-        for i in range(1, len(high)):
-            tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
-        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
-        atr_pct = atr / current_price
-
-        # Pivots
-        prev_day = df.iloc[-24:]  # Approximate last day
-        if len(prev_day) > 0:
-            pivot = (prev_day['High'].max() + prev_day['Low'].min() + prev_day['Close'].iloc[-1]) / 3
-            r1 = 2 * pivot - prev_day['Low'].min()
-            s1 = 2 * pivot - prev_day['High'].max()
-            r2 = pivot + (prev_day['High'].max() - prev_day['Low'].min())
-            s2 = pivot - (prev_day['High'].max() - prev_day['Low'].min())
-        else:
-            pivot = r1 = r2 = s1 = s2 = current_price
-
-        recent_high = high.tail(20).max()
-        recent_low = low.tail(20).min()
-
-        psych_level = round(current_price * 100) / 100
-
-        candle_signal = 0
-        if len(close) >= 3:
-            last3 = close.tail(3).values
-            if last3[2] > last3[1] > last3[0]:
-                candle_signal = 1
-            elif last3[2] < last3[1] < last3[0]:
-                candle_signal = -1
-
-        # Ichimoku (simplified)
-        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        senkou_a = ((tenkan + kijun) / 2).shift(26)
-        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-        ichimoku_signal = 0
-        if len(tenkan) > 0 and len(kijun) > 0 and len(senkou_a) > 0 and len(senkou_b) > 0:
-            if (current_price > senkou_a.iloc[-1] and current_price > senkou_b.iloc[-1] and 
-                tenkan.iloc[-1] > kijun.iloc[-1] and senkou_a.iloc[-1] > senkou_b.iloc[-1]):
-                ichimoku_signal = 1
-            elif (current_price < senkou_a.iloc[-1] and current_price < senkou_b.iloc[-1] and 
-                  tenkan.iloc[-1] < kijun.iloc[-1] and senkou_a.iloc[-1] < senkou_b.iloc[-1]):
-                ichimoku_signal = -1
-
-        volume_avg = volume.tail(20).mean()
-        recent_volume = volume.iloc[-1]
-        volume_signal = 0
-        if recent_volume > volume_avg * 1.2:
-            if close.iloc[-1] > close.iloc[-2]:
-                volume_signal = 1
-            elif close.iloc[-1] < close.iloc[-2]:
-                volume_signal = -1
-
-        fvg_signal = 0
-        if len(close) >= 4:
-            if low.iloc[-1] > high.iloc[-3]:
-                fvg_signal = 1
-            elif high.iloc[-1] < low.iloc[-3]:
-                fvg_signal = -1
-
-        # VWAP
-        if len(close) >= 2 and volume.sum() > 0:
-            vwap = (close * volume).cumsum() / volume.cumsum()
-            vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
-        else:
-            vwap_signal = 0
-
-        # Stochastic Oscillator
-        if len(close) >= 14:
-            lowest_low = low.rolling(window=14).min()
-            highest_high = high.rolling(window=14).max()
-            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-            stoch_d = stoch_k.rolling(window=3).mean()
-            stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
-        else:
-            stoch_signal = 0
-
-        # CCI
-        if len(close) >= 20:
-            typical_price = (high + low + close) / 3
-            sma_tp = typical_price.rolling(window=20).mean()
-            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
-            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-            cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
-        else:
-            cci_signal = 0
-
-        return {
-            'price': current_price,
-            'volatility_hourly': float(vol_hourly),
-            'atr_pct': float(atr_pct),
-            'pivot': float(pivot),
-            'r1': float(r1), 'r2': float(r2),
-            's1': float(s1), 's2': float(s2),
-            'support': float(recent_low),
-            'resistance': float(recent_high),
-            'psych_level': float(psych_level),
-            'rsi_signal': 0,  # Placeholder for polygon
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': fvg_signal,
-            'vwap_signal': vwap_signal,
-            'stoch_signal': stoch_signal,
-            'cci_signal': cci_signal
-        }
-    except Exception as e:
-        print(f'Polygon fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
-def _get_twelvedata_data(yf_symbol):
-    """Get data from Twelve Data with full indicators."""
-    if not TWELVE_DATA_API_KEY or not _td_client:
-        return None
-    try:
-        sym = yf_symbol.replace('=X', '')
-        if len(sym) == 6 and sym.isalpha():
-            print(f'Twelve Data does not support forex for {yf_symbol}')
-            return None
-        series = _td_client.time_series(symbol=sym, interval='1h', outputsize=100)
-        data = series.as_json()
-        if isinstance(data, tuple):
-            data = data[0]  # Assume first element is the data
-        values = data.get('values', [])
-        if not values or len(values) < 26:
-            print(f'Twelve Data insufficient data for {yf_symbol}')
-            return None
-        # Convert to DataFrame
-        import pandas as pd
-        df = pd.DataFrame(values)
-        df['close'] = df['close'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['volume'] = df['volume'].astype(float)
-        close = df['close']
-        high = df['high']
-        low = df['low']
-        volume = df['volume']
-        current_price = float(close.iloc[0])  # Most recent first
-
-        # Compute indicators
-        hourly_returns = close.pct_change().dropna()
-        vol_hourly = hourly_returns.std()
-        tr = []
-        for i in range(1, len(high)):
-            tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
-        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
-        atr_pct = atr / current_price
-
-        # Pivots (approximate last day ~24 hours)
-        prev_day = df.iloc[24:48] if len(df) > 48 else df.tail(24)
-        if len(prev_day) > 0:
-            pivot = (prev_day['high'].max() + prev_day['low'].min() + prev_day['close'].iloc[-1]) / 3
-            r1 = 2 * pivot - prev_day['low'].min()
-            s1 = 2 * pivot - prev_day['high'].max()
-            r2 = pivot + (prev_day['high'].max() - prev_day['low'].min())
-            s2 = pivot - (prev_day['high'].max() - prev_day['low'].min())
-        else:
-            pivot = r1 = r2 = s1 = s2 = current_price
-
-        recent_high = high.head(20).max()  # Since most recent first
-        recent_low = low.head(20).min()
-
-        psych_level = round(current_price * 100) / 100
-
-        candle_signal = 0
-        if len(close) >= 3:
-            last3 = close.head(3).values  # Most recent first
-            if last3[0] > last3[1] > last3[2]:  # Rising (reverse order)
-                candle_signal = 1
-            elif last3[0] < last3[1] < last3[2]:
-                candle_signal = -1
-
-        # Ichimoku
-        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        senkou_a = ((tenkan + kijun) / 2).shift(-26)  # Shift forward since most recent first
-        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(-26)
-        ichimoku_signal = 0
-        if len(tenkan) > 0 and len(kijun) > 0 and len(senkou_a) > 0 and len(senkou_b) > 0:
-            if (current_price > senkou_a.iloc[0] and current_price > senkou_b.iloc[0] and 
-                tenkan.iloc[0] > kijun.iloc[0] and senkou_a.iloc[0] > senkou_b.iloc[0]):
-                ichimoku_signal = 1
-            elif (current_price < senkou_a.iloc[0] and current_price < senkou_b.iloc[0] and 
-                  tenkan.iloc[0] < kijun.iloc[0] and senkou_a.iloc[0] < senkou_b.iloc[0]):
-                ichimoku_signal = -1
-
-        volume_avg = volume.head(20).mean()
-        recent_volume = volume.iloc[0]
-        volume_signal = 0
-        if recent_volume > volume_avg * 1.2:
-            if close.iloc[0] > close.iloc[1]:
-                volume_signal = 1
-            elif close.iloc[0] < close.iloc[1]:
-                volume_signal = -1
-
-        fvg_signal = 0
-        if len(close) >= 4:
-            if low.iloc[0] > high.iloc[2]:
-                fvg_signal = 1
-            elif high.iloc[0] < low.iloc[2]:
-                fvg_signal = -1
-
-        # VWAP
-        if len(close) >= 2 and volume.sum() > 0:
-            vwap = (close * volume).cumsum() / volume.cumsum()
-            vwap_signal = 1 if close.iloc[0] > vwap.iloc[0] else -1
-        else:
-            vwap_signal = 0
-
-        # Stochastic Oscillator
-        if len(close) >= 14:
-            lowest_low = low.rolling(window=14).min()
-            highest_high = high.rolling(window=14).max()
-            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-            stoch_d = stoch_k.rolling(window=3).mean()
-            stoch_signal = 1 if stoch_k.iloc[0] < 20 else -1 if stoch_k.iloc[0] > 80 else 0
-        else:
-            stoch_signal = 0
-
-        # CCI
-        if len(close) >= 20:
-            typical_price = (high + low + close) / 3
-            sma_tp = typical_price.rolling(window=20).mean()
-            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
-            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-            cci_signal = 1 if cci.iloc[0] < -100 else -1 if cci.iloc[0] > 100 else 0
-        else:
-            cci_signal = 0
-
-        return {
-            'price': current_price,
-            'volatility_hourly': float(vol_hourly),
-            'atr_pct': float(atr_pct),
-            'pivot': float(pivot),
-            'r1': float(r1), 'r2': float(r2),
-            's1': float(s1), 's2': float(s2),
-            'support': float(recent_low),
-            'resistance': float(recent_high),
-            'psych_level': float(psych_level),
-            'rsi_signal': 0,  # Placeholder
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': fvg_signal,
-            'vwap_signal': vwap_signal,
-            'stoch_signal': stoch_signal,
-            'cci_signal': cci_signal
-        }
-    except Exception as e:
-        print(f'Twelve Data fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
-def _get_fmp_data(yf_symbol):
-    """Get data from FinancialModelingPrep (minimal)."""
-    if not FMP_API_KEY:
-        return None
-    try:
-        sym = yf_symbol.replace('=X', '')
-        quote = _fmp_client.get_quote(sym)
-        if not quote or (isinstance(quote, list) and len(quote) == 0) or quote == 0:
-            print(f'FMP no quote for {yf_symbol}')
-            return None
-        price = float(quote[0].get('price', 0))
-        return {
-            'price': price,
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': price,
-            'r1': price * 1.01, 'r2': price * 1.02,
-            's1': price * 0.99, 's2': price * 0.98,
-            'support': price * 0.98,
-            'resistance': price * 1.02,
-            'psych_level': round(price * 100) / 100,
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0
-        }
-    except Exception as e:
-        print(f'FMP fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
-def _get_quandl_data(yf_symbol):
-    """Get data from Quandl (minimal)."""
-    if not QUANDL_API_KEY:
-        return None
-    try:
-        # Placeholder implementation - Quandl requires specific dataset codes
-        # For demo, return basic data
-        print(f'Quandl placeholder for {yf_symbol}')
-        return {
-            'price': 100.0,  # Placeholder
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': 100.0,
-            'r1': 101.0, 'r2': 102.0,
-            's1': 99.0, 's2': 98.0,
-            'support': 98.0,
-            'resistance': 102.0,
-            'psych_level': 100.0,
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0
-        }
-    except Exception as e:
-        print(f'Quandl fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
-def _get_fred_data(yf_symbol):
-    """Get macroeconomic data from FRED as fallback (not for FX tickers, used for macro indicators)."""
-    if not FRED_API_KEY or not _fred_client:
-        return None
-    try:
-        # FRED is for macro series, not tickers; skip unless symbol maps to a FRED series
-        print(f'FRED not applicable for {yf_symbol}')
-        return None
-    except Exception as e:
-        print(f'FRED fetch error for {yf_symbol}: {e}')
-        return None
 
 def calculate_hurst_exponent(price_series, max_lag=20):
     """Calculate Hurst exponent for trend persistence."""
@@ -1910,7 +1411,11 @@ def log_trades(results):
         json.dump(logs, f, indent=2)
 
 def evaluate_trades():
-    """Evaluate past trades and adjust indicator weights based on performance."""
+    """
+    Evaluate past trades and adjust indicator weights AND parameters based on real performance.
+    This function uses ONLY real trade outcomes - no simulated or fake data.
+    Called every run to continuously learn and improve from actual market results.
+    """
     global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
     if not os.path.exists(TRADE_LOG_FILE):
         return
@@ -2060,26 +1565,37 @@ def evaluate_trades():
                 print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
         
         # Adjust overall parameters if win rate < 45% AND sufficient sample size
+        # This uses REAL trade outcomes, not simulated data
         if win_rate < 0.45 and total >= 10:  # Require at least 10 trades for adjustments
-            global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
-            MIN_STOP_PCT *= 0.95  # Less aggressive adjustment
-            print("Adjusted: slightly tighter stops due to low win rate.")
+            global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT, MAX_LEVERAGE_FOREX
+            MIN_STOP_PCT *= 0.95  # Less aggressive adjustment based on real data
+            MAX_LEVERAGE_FOREX = max(50, MAX_LEVERAGE_FOREX * 0.95)  # Reduce leverage on poor real performance
+            print("Adjusted based on real trades: slightly tighter stops and lower leverage due to low win rate.")
         elif win_rate < 0.3 and total >= 5:  # Very low win rate even with smaller sample
             MIN_STOP_PCT *= 0.9
-            print("Adjusted: tighter stops due to very low win rate.")
+            MAX_LEVERAGE_FOREX = max(50, MAX_LEVERAGE_FOREX * 0.9)
+            print("Adjusted based on real trades: tighter stops and lower leverage due to very low win rate.")
         elif win_rate > 0.6 and total >= 10:  # Good performance - loosen stops slightly
             MIN_STOP_PCT *= 1.05
-            print("Adjusted: slightly looser stops due to good performance.")
+            MAX_LEVERAGE_FOREX = min(100, MAX_LEVERAGE_FOREX * 1.05)  # Can increase leverage on good real performance
+            print("Adjusted based on real trades: slightly looser stops and higher leverage due to good performance.")
         
         # Save back
         with open(TRADE_LOG_FILE, 'w') as f:
             json.dump(logs, f, indent=2)
 
 def backtest_parameters():
-    """Backtest current parameters on historical data and auto-adjust if needed."""
-    if not BACKTEST_ENABLED:
-        return
+    """
+    DEPRECATED - This function is no longer used.
+    We only use real trade data for parameter tuning, not simulated backtests.
     
+    Parameter tuning now happens in evaluate_trades() using actual trade outcomes.
+    This function remains for backwards compatibility but does nothing when BACKTEST_ENABLED=False.
+    """
+    if not BACKTEST_ENABLED:
+        return  # Disabled - we don't use simulated data
+    
+    print("WARNING: Backtesting is deprecated. Use real trade data via evaluate_trades() instead.")
     print(f"Running backtest on last {BACKTEST_PERIOD_DAYS} days of data...")
     
     # Always use real backtest data
@@ -2098,9 +1614,10 @@ def backtest_parameters():
             if hist.empty or len(hist) < 24:  # Need at least 1 day
                 continue
             
-            # Simulate trades on each hour
+            # DEPRECATED: This entire function is disabled (BACKTEST_ENABLED=False)
+            # Was: Simulate trades on each hour
             for i in range(24, len(hist)):  # Start from 24th hour to have enough data
-                # Mock market data for the hour
+                # Prepare historical market data for the hour (not executed - deprecated)
                 recent_data = hist.iloc[i-24:i]  # Last 24 hours
                 current_price = hist.iloc[i]['Close']
                 
@@ -2807,11 +2324,11 @@ async def main(backtest_only=False, training_mode=False):
     # sort by quality: rr then news_count
     results.sort(key=lambda r: (r['rr'], r['news_count']), reverse=True)
 
-    # Evaluate and learn every run
+    # Evaluate and learn every run using REAL trade data only
     evaluate_trades()
     
-    # Backtest and auto-validate parameters
-    backtest_parameters()
+    # REMOVED: backtest_parameters() - we don't use simulated data anymore
+    # All parameter tuning now happens in evaluate_trades() using real trade outcomes
     
     # Train/retrain ML model periodically
     if ML_ENABLED and ML_AVAILABLE:
@@ -2962,97 +2479,8 @@ async def get_market_data_async(yf_symbol, kind='forex', session=None):
     if data:
         print(f"yfinance success for {yf_symbol}")
         return data
-    else:
-        print(f"yfinance failed for {yf_symbol}")
     
-    # For now, keep other providers synchronous as they may not support async easily
-    # Fallback to Alpha Vantage for forex
-    if kind == 'forex':
-        if not ALPHA_VANTAGE_API_KEY:
-            print(f"Skipping Alpha Vantage for {yf_symbol} (no key)")
-        else:
-            print(f"Attempting Alpha Vantage for {yf_symbol}...")
-            data = _get_alpha_vantage_data(yf_symbol)
-            if data:
-                print(f"Alpha Vantage success for {yf_symbol}")
-                return data
-            else:
-                print(f"Alpha Vantage failed for {yf_symbol}")
-
-    # Fallback to Polygon
-    if not POLYGON_API_KEY:
-        print(f"Skipping Polygon for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Polygon for {yf_symbol}...")
-        data = _get_polygon_data(yf_symbol)
-        if data:
-            print(f"Polygon success for {yf_symbol}")
-            return data
-        else:
-            print(f"Polygon failed for {yf_symbol}")
-
-    # Fallback to TwelveData
-    if not TWELVE_DATA_API_KEY:
-        print(f"Skipping Twelve Data for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Twelve Data for {yf_symbol}...")
-        data = _get_twelvedata_data(yf_symbol)
-        if data:
-            print(f"Twelve Data success for {yf_symbol}")
-            return data
-        else:
-            print(f"Twelve Data failed for {yf_symbol}")
-
-    # Fallback to FinancialModelingPrep
-    if not FMP_API_KEY:
-        print(f"Skipping FMP for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting FMP for {yf_symbol}...")
-        data = _get_fmp_data(yf_symbol)
-        if data:
-            print(f"FMP success for {yf_symbol}")
-            return data
-        else:
-            print(f"FMP failed for {yf_symbol}")
-
-    # Fallback to Quandl (very limited, dataset dependent)
-    if not QUANDL_API_KEY:
-        print(f"Skipping Quandl for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Quandl for {yf_symbol}...")
-        data = _get_quandl_data(yf_symbol)
-        if data:
-            print(f"Quandl success for {yf_symbol}")
-            return data
-        else:
-            print(f"Quandl failed for {yf_symbol}")
-
-    # Fallback to FRED for macro series (not ticker-level)
-    if not FRED_API_KEY:
-        print(f"Skipping FRED for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting FRED for {yf_symbol}...")
-        data = _get_fred_data(yf_symbol)
-        if data:
-            print(f"FRED success for {yf_symbol}")
-            return data
-        else:
-            print(f"FRED failed for {yf_symbol}")
-    
-    # Fallback to IEX for stocks
-    if kind == 'stock':
-        if not IEX_API_TOKEN:
-            print(f"Skipping IEX for {yf_symbol} (no key)")
-        else:
-            print(f"Attempting IEX for {yf_symbol}...")
-            data = _get_iex_data(yf_symbol)
-            if data:
-                print(f"IEX success for {yf_symbol}")
-                return data
-            else:
-                print(f"IEX failed for {yf_symbol}")
-    
-    print(f"All sources failed for {yf_symbol}")
+    print(f"yfinance failed for {yf_symbol}")
     return None
 
 if __name__ == '__main__':

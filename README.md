@@ -93,14 +93,14 @@ A Python-based trading signal generator that analyzes forex, commodities, and in
   - ADX (Average Directional Index) - Trend strength
   - Williams %R - Momentum oscillator
   - Parabolic SAR - Trend and stop placement
-- **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
+- **Data Source**: YFinance provides all 14 indicators calculated from real historical data
 - **Signal Generation**: Provides entry, stop loss, and take profit levels for manual trading
 - **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
 - **Telegram Notifications**: Sends trade signals via Telegram (optional)
-- **Adaptive Learning**: Evaluates past signals using real historical data and adjusts indicator weights for improved performance
+- **Adaptive Learning**: Evaluates past signals using real historical data and adjusts indicator weights for improved performance - **NO SIMULATED DATA**
 - **Low Money Mode**: Optimized settings for smaller trading accounts (< $500)
-- **Backtesting**: Automatic parameter validation on 90 days of historical data
+- **Parameter Auto-Tuning**: Continuous parameter adjustment based on real trade outcomes (no backtesting/simulation)
 - **ML Learning Without Broker**: Checks if previous signals hit TP/SL using historical price data, enabling ML to learn from real market movements
 
 ## Requirements
@@ -123,7 +123,7 @@ pip install -r requirements.txt
 Or manually:
 
 ```bash
-pip install newsapi-python yfinance textblob requests alpha_vantage iexfinance polygon-api-client twelvedata fmp-python quandl fredapi scikit-learn numpy pandas joblib groq
+pip install newsapi-python yfinance requests aiohttp scikit-learn numpy pandas joblib groq
 ```
 
 ## Installation
@@ -147,15 +147,11 @@ pip install newsapi-python yfinance textblob requests alpha_vantage iexfinance p
 
 Set the following environment variables:
 
+**Required:**
 - `NEWS_API_KEY`: Your NewsAPI key (required)
-- `ALPHA_VANTAGE_API_KEY`: Your Alpha Vantage API key (optional, for forex data fallback)
-- `POLYGON_API_KEY`: Your Polygon.io API key (optional, for advanced market data)
-- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (optional, for global market data)
-- `FMP_API_KEY`: Your Financial Modeling Prep API key (optional, for stock data)
-- `QUANDL_API_KEY`: Your Quandl/Nasdaq Data Link API key (optional, for economic data)
-- `FRED_API_KEY`: Your FRED API key (optional, for macroeconomic data)
-- `IEX_API_TOKEN`: Your IEX Cloud API token (optional, for stock data)
 - `GROQ_API_KEY`: Your Groq API key (REQUIRED - get free tier at console.groq.com)
+
+**Optional Configuration:**
 - `LLM_PROVIDER`: LLM provider (only `groq` is supported, default: groq)
 - `LLM_MODEL`: Specific model to use (default: `llama-3.3-70b-versatile`)
   - Available models: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `mixtral-8x7b-32768`, `gemma2-9b-it`, `llama3-70b-8192`
@@ -251,13 +247,21 @@ In training mode, psychology data is collected but NOT used to adjust trade deci
 
 **To stop training mode**: Press `Ctrl+C`
 
-### Backtest Mode
+### ~~Backtest Mode~~ (DEPRECATED - Removed)
 
-Run historical backtesting:
+**Backtesting has been removed** as it used simulated data. We now use only real trade outcomes for all learning and parameter tuning.
 
-```bash
-python main.py --backtest
-```
+All parameter optimization happens automatically via `evaluate_trades()` which uses real historical price data to determine actual trade outcomes.
+
+If you want to validate parameters:
+1. Use Training Mode to collect real trade data
+2. Let evaluate_trades() adjust parameters based on real performance
+3. Review trade_log.json to see actual win/loss results
+
+**Why removed:**
+- Backtesting simulated trades (fake data)
+- Real trade evaluation via check_trade_outcomes() and evaluate_trades() provides better, actual results
+- No need for simulated validation when we can learn from real market movements
 
 ## Output
 
@@ -270,7 +274,11 @@ The bot outputs recommended trading signals in the console and via Telegram, inc
 - Risk-reward ratio
 - **ML probability and confidence scores** (when ML is enabled and trained)
 
-Signals are also logged to `trade_log.json` and automatically evaluated on next run to check if they hit TP/SL using real historical data.
+Signals are also logged to `trade_log.json` and automatically evaluated on next run to check if they hit TP/SL using **real historical price data** (not simulated). This means:
+- The bot fetches actual market prices from the time the trade was created
+- Checks if stop-loss or take-profit was actually hit based on real price movements
+- No broker connection needed - uses publicly available historical data
+- ML learns from what markets ACTUALLY did, not simulated/fake data
 
 ## Machine Learning
 
