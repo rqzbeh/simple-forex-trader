@@ -13,8 +13,8 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
 import yfinance as yf
-from alpha_vantage.foreignexchange import ForeignExchange
-from iexfinance.stocks import Stock
+
+# Only keep data providers that return REAL calculated indicators (not placeholders)
 try:
     from polygon import RESTClient as PolygonRESTClient
 except ImportError:
@@ -25,20 +25,13 @@ try:
 except ImportError:
     TDClient = None
 
-try:
-    from fmp_python.fmp import FMP
-except ImportError:
-    FMP = None
-
-try:
-    import quandl
-except ImportError:
-    quandl = None
-
-try:
-    from fredapi import Fred
-except ImportError:
-    Fred = None
+# REMOVED: Alpha Vantage - returns placeholder values for indicators
+# REMOVED: IEX Cloud - returns placeholder values for indicators  
+# REMOVED: FMP - returns placeholder values for indicators
+# REMOVED: Quandl - returns fake placeholder data
+# REMOVED: FRED - not applicable for FX/stock tickers
+# These providers don't provide historical intraday data needed for real indicator calculations
+# Keeping only yfinance (primary), Polygon, and TwelveData which calculate real indicators
 
 try:
     from ml_predictor import get_ml_predictor
@@ -85,15 +78,14 @@ NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 if not NEWS_API_KEY:
     raise ValueError('Please set the NEWS_API_KEY environment variable')
 
-ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')  # Optional, for backup data
-IEX_API_TOKEN = os.getenv('IEX_API_TOKEN')  # Optional, for IEX Cloud data
+ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')  # REMOVED - not used anymore
+IEX_API_TOKEN = os.getenv('IEX_API_TOKEN')  # REMOVED - not used anymore
 
-# New API keys (optional) - set these if you want additional free-data fallbacks
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
-TWELVE_DATA_API_KEY = os.getenv('TWELVE_DATA_API_KEY')
-FMP_API_KEY = os.getenv('FMP_API_KEY')
-QUANDL_API_KEY = os.getenv('QUANDL_API_KEY')
-FRED_API_KEY = os.getenv('FRED_API_KEY')
+# Data provider API keys - Only those that provide REAL indicator calculations
+POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')  # Optional - provides real indicators
+TWELVE_DATA_API_KEY = os.getenv('TWELVE_DATA_API_KEY')  # Optional - provides real indicators
+
+# REMOVED: FMP, Quandl, FRED - these returned placeholder/fake data
 
 # Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
 # Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
@@ -103,24 +95,18 @@ GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
 
 print("API Keys status:")
 print(f"NEWS_API_KEY: {'Set' if NEWS_API_KEY else 'Not set'}")
-print(f"ALPHA_VANTAGE_API_KEY: {'Set' if ALPHA_VANTAGE_API_KEY else 'Not set'}")
-print(f"POLYGON_API_KEY: {'Set' if POLYGON_API_KEY else 'Not set'}")
-print(f"TWELVE_DATA_API_KEY: {'Set' if TWELVE_DATA_API_KEY else 'Not set'}")
-print(f"FMP_API_KEY: {'Set' if FMP_API_KEY else 'Not set'}")
-print(f"QUANDL_API_KEY: {'Set' if QUANDL_API_KEY else 'Not set'}")
-print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
-print(f"IEX_API_TOKEN: {'Set' if IEX_API_TOKEN else 'Not set'}")
 print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set (REQUIRED)'}")
+print(f"POLYGON_API_KEY: {'Set (optional)' if POLYGON_API_KEY else 'Not set (optional)'}")
+print(f"TWELVE_DATA_API_KEY: {'Set (optional)' if TWELVE_DATA_API_KEY else 'Not set (optional)'}")
 print(f"Groq Rate Limits: {'Disabled' if not GROQ_ENFORCE_LIMITS else f'{GROQ_MAX_REQUESTS_PER_DAY} req/day, {GROQ_MAX_TOKENS_PER_DAY} tokens/day'}")
+print()
+print("Data providers: yfinance (primary), Polygon (optional), TwelveData (optional)")
+print("Removed providers: Alpha Vantage, IEX, FMP, Quandl, FRED (returned fake/placeholder data)")
 
 
 # Initialize clients lazily when keys are present
-_polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY else None
-_td_client = TDClient(apikey=TWELVE_DATA_API_KEY) if TWELVE_DATA_API_KEY else None
-_fmp_client = FMP(FMP_API_KEY) if FMP_API_KEY and FMP else None
-if QUANDL_API_KEY:
-    quandl.ApiConfig.api_key = QUANDL_API_KEY
-_fred_client = Fred(api_key=FRED_API_KEY) if FRED_API_KEY else None
+_polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY and PolygonRESTClient else None
+_td_client = TDClient(apikey=TWELVE_DATA_API_KEY) if TWELVE_DATA_API_KEY and TDClient else None
 
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
@@ -860,54 +846,6 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
         print(f'yfinance fetch error for {yf_symbol}: {e}')
         return None
 
-@lru_cache(maxsize=100)
-def _get_alpha_vantage_data(yf_symbol):
-    """
-    Get forex data from Alpha Vantage.
-    
-    DISABLED: Alpha Vantage free tier doesn't provide historical intraday data needed for indicators.
-    Without real indicator calculations, we would return placeholder/fake values.
-    We only use real data, so this provider is disabled.
-    """
-    return None  # Disabled - can't get real indicator data without paid Alpha Vantage plan
-    
-    # Original code commented out (returns placeholder values):
-    # if not ALPHA_VANTAGE_API_KEY:
-    #     return None
-    # try:
-    #     fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
-    #     from_currency = yf_symbol[:3]
-    #     to_currency = yf_symbol[3:6]
-    #     data, _ = fx.get_currency_exchange_rate(from_currency=from_currency, to_currency=to_currency)
-    #     current_price = float(data['5. Exchange Rate'])
-    #     # Problem: Returns placeholder values for volatility, ATR, indicators
-    #     # We don't use fake data, so we return None instead
-    # except Exception as e:
-    #     print(f'Alpha Vantage fetch error for {yf_symbol}: {e}')
-    #     return None
-@lru_cache(maxsize=100)
-def _get_iex_data(yf_symbol):
-    """
-    Get stock data from IEX Cloud.
-    
-    DISABLED: IEX Cloud doesn't provide historical intraday data in free tier for indicator calculations.
-    Without real indicator calculations, we would return placeholder/fake values.
-    We only use real data, so this provider is disabled.
-    """
-    return None  # Disabled - can't get real indicator data without IEX Cloud paid plan
-    
-    # Original code commented out (returns placeholder values):
-    # if not IEX_API_TOKEN:
-    #     return None
-    # try:
-    #     stock = Stock(yf_symbol.replace('=X', ''), token=IEX_API_TOKEN)
-    #     quote = stock.get_quote()
-    #     current_price = quote['latestPrice']
-    #     # Problem: Returns placeholder values for volatility, ATR, indicators
-    #     # We don't use fake data, so we return None instead
-    # except Exception as e:
-    #     print(f'IEX Cloud fetch error for {yf_symbol}: {e}')
-    #     return None
 
 
 @lru_cache(maxsize=100)
@@ -1203,72 +1141,6 @@ def _get_twelvedata_data(yf_symbol):
 
 
 @lru_cache(maxsize=100)
-def _get_fmp_data(yf_symbol):
-    """
-    Get data from FinancialModelingPrep (minimal).
-    
-    DISABLED: FMP doesn't provide historical intraday data needed for indicator calculations.
-    Without real indicator calculations, we would return placeholder/fake values.
-    We only use real data, so this provider is disabled.
-    """
-    return None  # Disabled - returns placeholder values for indicators
-    
-    # Original code commented out (returns placeholder values):
-    # if not FMP_API_KEY:
-    #     return None
-    # try:
-    #     sym = yf_symbol.replace('=X', '')
-    #     quote = _fmp_client.get_quote(sym)
-    #     if not quote or (isinstance(quote, list) and len(quote) == 0) or quote == 0:
-    #         print(f'FMP no quote for {yf_symbol}')
-    #         return None
-    #     price = float(quote[0].get('price', 0))
-    #     # Problem: Returns placeholder values for volatility, ATR, indicators
-    #     # We don't use fake data, so we return None instead
-    # except Exception as e:
-    #     print(f'FMP fetch error for {yf_symbol}: {e}')
-    #     return None
-
-
-@lru_cache(maxsize=100)
-def _get_quandl_data(yf_symbol):
-    """
-    Get data from Quandl.
-    
-    DISABLED: Quandl requires specific dataset codes and doesn't provide real-time FX data.
-    This was just a placeholder implementation returning fake data.
-    We only use real data, so this provider is disabled.
-    """
-    return None  # Disabled - was returning completely fake placeholder data
-    
-    # Original code was just a placeholder returning fake data:
-    # if not QUANDL_API_KEY:
-    #     return None
-    # try:
-    #     print(f'Quandl placeholder for {yf_symbol}')
-    #     return {
-    #         'price': 100.0,  # FAKE placeholder
-    #         'volatility_hourly': 0.01,  # FAKE
-    #         ...all fake data...
-    #     }
-    # except Exception as e:
-    #     print(f'Quandl fetch error for {yf_symbol}: {e}')
-    #     return None
-
-
-@lru_cache(maxsize=100)
-def _get_fred_data(yf_symbol):
-    """Get macroeconomic data from FRED as fallback (not for FX tickers, used for macro indicators)."""
-    if not FRED_API_KEY or not _fred_client:
-        return None
-    try:
-        # FRED is for macro series, not tickers; skip unless symbol maps to a FRED series
-        print(f'FRED not applicable for {yf_symbol}')
-        return None
-    except Exception as e:
-        print(f'FRED fetch error for {yf_symbol}: {e}')
-        return None
-
 def calculate_hurst_exponent(price_series, max_lag=20):
     """Calculate Hurst exponent for trend persistence."""
     if len(price_series) < max_lag * 2:
@@ -2927,20 +2799,6 @@ async def get_market_data_async(yf_symbol, kind='forex', session=None):
     else:
         print(f"yfinance failed for {yf_symbol}")
     
-    # For now, keep other providers synchronous as they may not support async easily
-    # Fallback to Alpha Vantage for forex
-    if kind == 'forex':
-        if not ALPHA_VANTAGE_API_KEY:
-            print(f"Skipping Alpha Vantage for {yf_symbol} (no key)")
-        else:
-            print(f"Attempting Alpha Vantage for {yf_symbol}...")
-            data = _get_alpha_vantage_data(yf_symbol)
-            if data:
-                print(f"Alpha Vantage success for {yf_symbol}")
-                return data
-            else:
-                print(f"Alpha Vantage failed for {yf_symbol}")
-
     # Fallback to Polygon
     if not POLYGON_API_KEY:
         print(f"Skipping Polygon for {yf_symbol} (no key)")
@@ -2964,55 +2822,6 @@ async def get_market_data_async(yf_symbol, kind='forex', session=None):
             return data
         else:
             print(f"Twelve Data failed for {yf_symbol}")
-
-    # Fallback to FinancialModelingPrep
-    if not FMP_API_KEY:
-        print(f"Skipping FMP for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting FMP for {yf_symbol}...")
-        data = _get_fmp_data(yf_symbol)
-        if data:
-            print(f"FMP success for {yf_symbol}")
-            return data
-        else:
-            print(f"FMP failed for {yf_symbol}")
-
-    # Fallback to Quandl (very limited, dataset dependent)
-    if not QUANDL_API_KEY:
-        print(f"Skipping Quandl for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Quandl for {yf_symbol}...")
-        data = _get_quandl_data(yf_symbol)
-        if data:
-            print(f"Quandl success for {yf_symbol}")
-            return data
-        else:
-            print(f"Quandl failed for {yf_symbol}")
-
-    # Fallback to FRED for macro series (not ticker-level)
-    if not FRED_API_KEY:
-        print(f"Skipping FRED for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting FRED for {yf_symbol}...")
-        data = _get_fred_data(yf_symbol)
-        if data:
-            print(f"FRED success for {yf_symbol}")
-            return data
-        else:
-            print(f"FRED failed for {yf_symbol}")
-    
-    # Fallback to IEX for stocks
-    if kind == 'stock':
-        if not IEX_API_TOKEN:
-            print(f"Skipping IEX for {yf_symbol} (no key)")
-        else:
-            print(f"Attempting IEX for {yf_symbol}...")
-            data = _get_iex_data(yf_symbol)
-            if data:
-                print(f"IEX success for {yf_symbol}")
-                return data
-            else:
-                print(f"IEX failed for {yf_symbol}")
     
     print(f"All sources failed for {yf_symbol}")
     return None

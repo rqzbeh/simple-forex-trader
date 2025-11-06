@@ -93,7 +93,7 @@ A Python-based trading signal generator that analyzes forex, commodities, and in
   - ADX (Average Directional Index) - Trend strength
   - Williams %R - Momentum oscillator
   - Parabolic SAR - Trend and stop placement
-- **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
+- **Real Data Sources**: YFinance (primary), with optional fallback to Polygon and Twelve Data - **all calculate real indicators, no fake/placeholder data**
 - **Signal Generation**: Provides entry, stop loss, and take profit levels for manual trading
 - **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
@@ -123,7 +123,9 @@ pip install -r requirements.txt
 Or manually:
 
 ```bash
-pip install newsapi-python yfinance textblob requests alpha_vantage iexfinance polygon-api-client twelvedata fmp-python quandl fredapi scikit-learn numpy pandas joblib groq
+pip install newsapi-python yfinance requests scikit-learn numpy pandas joblib groq
+# Optional data providers (only if you have API keys):
+pip install polygon-api-client twelvedata
 ```
 
 ## Installation
@@ -147,15 +149,15 @@ pip install newsapi-python yfinance textblob requests alpha_vantage iexfinance p
 
 Set the following environment variables:
 
+**Required:**
 - `NEWS_API_KEY`: Your NewsAPI key (required)
-- `ALPHA_VANTAGE_API_KEY`: Your Alpha Vantage API key (optional, for forex data fallback)
-- `POLYGON_API_KEY`: Your Polygon.io API key (optional, for advanced market data)
-- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (optional, for global market data)
-- `FMP_API_KEY`: Your Financial Modeling Prep API key (optional, for stock data)
-- `QUANDL_API_KEY`: Your Quandl/Nasdaq Data Link API key (optional, for economic data)
-- `FRED_API_KEY`: Your FRED API key (optional, for macroeconomic data)
-- `IEX_API_TOKEN`: Your IEX Cloud API token (optional, for stock data)
 - `GROQ_API_KEY`: Your Groq API key (REQUIRED - get free tier at console.groq.com)
+
+**Optional Data Providers (for fallback if yfinance fails):**
+- `POLYGON_API_KEY`: Your Polygon.io API key (optional)
+- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (optional)
+
+**Optional Configuration:**
 - `LLM_PROVIDER`: LLM provider (only `groq` is supported, default: groq)
 - `LLM_MODEL`: Specific model to use (default: `llama-3.3-70b-versatile`)
   - Available models: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `mixtral-8x7b-32768`, `gemma2-9b-it`, `llama3-70b-8192`
@@ -172,6 +174,13 @@ Set the following environment variables:
 - `SHARPE_TRACKING_ENABLED`: Enable Sharpe ratio tracking and optimization (default: true)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
+
+**Removed (returned fake/placeholder data):**
+- ~~`ALPHA_VANTAGE_API_KEY`~~ - Removed
+- ~~`IEX_API_TOKEN`~~ - Removed
+- ~~`FMP_API_KEY`~~ - Removed
+- ~~`QUANDL_API_KEY`~~ - Removed
+- ~~`FRED_API_KEY`~~ - Removed
 
 ### Settings
 
