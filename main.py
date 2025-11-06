@@ -448,7 +448,7 @@ ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 # Training Mode Configuration
 TRAINING_MODE = False  # Set to True to enable training mode
 TRAINING_CHECK_INTERVAL = 1800  # Seconds to wait between trade checks (30 minutes)
-TRAINING_RETRAIN_AFTER = 1  # Retrain ML after this many NEW completed trades in training mode
+TRAINING_RETRAIN_AFTER = 10  # Retrain ML after this many NEW completed trades in training mode
 
 # LLM Configuration for News Analysis (Groq - MANDATORY)
 # LLM analysis is now mandatory and always enabled
@@ -2397,13 +2397,14 @@ async def main(backtest_only=False, training_mode=False):
         print()
         print("Why collect psychology if not using it?")
         print("  - Determines if trade failed due to poor analytics OR news/emotion")
-        print("  - Emotional failures are EXCLUDED from ML training")
-        print("  - Ensures ML learns only from analytical mistakes")
+        print("  - Emotional failures are EXCLUDED from Technical ML training")
+        print("  - Psychology data USED to train News Impact ML")
         print()
-        print("ML Training Exclusions in Training Mode:")
-        print("  - ML System 1 (Technical): Excludes emotional/mixed failures")
-        print("  - ML System 2 (News Impact): Excludes ALL training mode trades")
-        print("  - Reason: Psychology not used for decisions, so can't train on it")
+        print("ML Training in Training Mode:")
+        print("  - ML System 1 (Technical): Trains on analytical trades only")
+        print("  - ML System 2 (News Impact): Trains on ALL trades (learns psychology impact)")
+        print("  - Both systems kept separate, combined only in normal/signal mode")
+        print("  - Retrains after every {} new completed trades".format(TRAINING_RETRAIN_AFTER))
         print("=" * 70)
         print()
     
@@ -3152,23 +3153,41 @@ if __name__ == '__main__':
                         print(f"NEW COMPLETED TRADES: {new_completed} (total: {current_completed_count})")
                         print("-"*70)
                         
-                        # Retrain after every new completed trade(s)
+                        # Retrain after every TRAINING_RETRAIN_AFTER new completed trades
                         if new_completed >= TRAINING_RETRAIN_AFTER:
-                            print(f"RETRAINING ML MODEL ({new_completed} new completed trades)")
+                            print(f"RETRAINING BOTH ML SYSTEMS ({new_completed} new completed trades)")
                             print("-"*70)
+                            
+                            # Retrain ML System 1 (Technical Predictor)
                             try:
                                 if ML_ENABLED and ML_AVAILABLE:
                                     ml_predictor = get_ml_predictor()
+                                    print("Training ML System 1 (Technical Predictor)...")
                                     if ml_predictor.train(TRADE_LOG_FILE):
                                         wins = sum(1 for t in completed if t.get('status') == 'win')
                                         win_rate = wins / current_completed_count if current_completed_count > 0 else 0
-                                        print(f"✓ ML model retrained successfully")
-                                        print(f"  Current dataset: {current_completed_count} trades, {win_rate:.2%} win rate")
-                                        previous_completed_count = current_completed_count
+                                        print(f"  ✓ Technical ML trained successfully")
+                                        print(f"    Dataset: {current_completed_count} trades, {win_rate:.2%} win rate")
                                     else:
-                                        print("⚠ ML retraining skipped (insufficient data - need 50+ completed trades)")
+                                        print("  ⚠ Technical ML training skipped (need 50+ completed trades)")
                             except Exception as e:
-                                print(f"ML retraining error: {e}")
+                                print(f"  ✗ Technical ML training error: {e}")
+                            
+                            # Retrain ML System 2 (News Impact Predictor)
+                            try:
+                                if NEWS_IMPACT_ENABLED:
+                                    from news_impact_predictor import get_news_impact_predictor
+                                    impact_predictor = get_news_impact_predictor()
+                                    print("Training ML System 2 (News Impact Predictor)...")
+                                    if impact_predictor.train(TRADE_LOG_FILE):
+                                        print(f"  ✓ News Impact ML trained successfully")
+                                    else:
+                                        print("  ⚠ News Impact ML training skipped (need 30+ completed trades)")
+                            except Exception as e:
+                                print(f"  ✗ News Impact ML training error: {e}")
+                            
+                            previous_completed_count = current_completed_count
+                            print("-"*70)
                     else:
                         print(f"\nNo new completed trades yet (total: {current_completed_count})")
                 

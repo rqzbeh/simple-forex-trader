@@ -24,7 +24,7 @@ def test_training_mode_config():
     
     # Check default values
     assert main.TRAINING_MODE == False, "TRAINING_MODE should default to False"
-    assert main.TRAINING_CHECK_INTERVAL == 3600, "Default check interval should be 3600 seconds"
+    assert main.TRAINING_CHECK_INTERVAL == 1800, "Default check interval should be 1800 seconds (30 minutes)"
     assert main.TRAINING_RETRAIN_AFTER == 10, "Default retrain after should be 10 trades"
     
     print("✓ Training mode configuration tests passed")

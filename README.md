@@ -227,10 +227,12 @@ Training mode features:
 
 - **Pure Technical Analysis**: Trades based only on technical indicators (sentiment neutralized to 0)
 - **Psychology Collection**: Still fetches news and analyzes market psychology for failure classification
-- **Smart Filtering**: Automatically excludes emotional/news-driven trade failures from ML training
+- **Smart Filtering**: Automatically trains BOTH ML systems:
+  - **ML System 1 (Technical)**: Trains on analytical trades, excludes emotional failures
+  - **ML System 2 (News Impact)**: Trains on ALL trades using psychology data to learn emotional patterns
 - **Continuous Loop**: Runs continuously until manually stopped (Ctrl+C)
-- **Periodic Checks**: Evaluates trade outcomes every hour (configurable via `TRAINING_CHECK_INTERVAL`)
-- **Auto-Retraining**: Automatically retrains ML model after every 10 completed trades (configurable via `TRAINING_RETRAIN_AFTER`)
+- **Periodic Checks**: Evaluates trade outcomes every 30 minutes (configurable via `TRAINING_CHECK_INTERVAL`)
+- **Auto-Retraining**: Automatically retrains BOTH ML models after every 10 completed trades (configurable via `TRAINING_RETRAIN_AFTER`)
 - **No Notifications**: Telegram notifications are disabled
 
 **Why collect psychology data if not using it for trades?**
@@ -238,13 +240,14 @@ Training mode features:
 In training mode, psychology data is collected but NOT used to adjust trade decisions. This ensures:
 1. Trades are based purely on technical analysis
 2. Trade failures can be classified as "analytical" (technical indicators were wrong) vs "emotional" (market moved due to news/fear/greed)
-3. Emotional failures are excluded from ML training
-4. ML learns only from analytical mistakes, improving technical indicator usage
+3. Emotional failures are excluded from Technical ML training
+4. Psychology data is used to train News Impact ML to learn how emotions affect markets
 
 **ML Training in Training Mode:**
 
 - **ML System 1 (Technical Predictor)**: Trains on technical trades, excludes emotional/mixed failures
-- **ML System 2 (News Impact Predictor)**: Excludes ALL training mode trades (since psychology wasn't used for trade decisions, the psychology data isn't representative of how news impacts trades in normal mode)
+- **ML System 2 (News Impact Predictor)**: Trains on ALL trades using psychology features to learn how news/emotions cause failures
+- **Both systems kept separate**: In training mode they learn independently, in normal mode they work together
 
 **To stop training mode**: Press `Ctrl+C`
 
