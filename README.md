@@ -196,6 +196,8 @@ Edit the constants in `main.py` to customize:
 
 ## Usage
 
+### Standard Mode
+
 Run the bot:
 
 ```bash
@@ -212,6 +214,47 @@ The bot will:
 6. Send notifications via Telegram (if configured)
 7. Log signals to `trade_log.json`
 8. Learn from real market data to improve future signals
+
+### Training Mode
+
+Run the bot in training mode to collect data and train the ML model:
+
+```bash
+python main.py --training
+```
+
+Training mode features:
+
+- **Pure Technical Analysis**: Trades based only on technical indicators (sentiment neutralized to 0)
+- **Psychology Collection**: Still fetches news and analyzes market psychology for failure classification
+- **Smart Filtering**: Automatically excludes emotional/news-driven trade failures from ML training
+- **Continuous Loop**: Runs continuously until manually stopped (Ctrl+C)
+- **Periodic Checks**: Evaluates trade outcomes every hour (configurable via `TRAINING_CHECK_INTERVAL`)
+- **Auto-Retraining**: Automatically retrains ML model after every 10 completed trades (configurable via `TRAINING_RETRAIN_AFTER`)
+- **No Notifications**: Telegram notifications are disabled
+
+**Why collect psychology data if not using it for trades?**
+
+In training mode, psychology data is collected but NOT used to adjust trade decisions. This ensures:
+1. Trades are based purely on technical analysis
+2. Trade failures can be classified as "analytical" (technical indicators were wrong) vs "emotional" (market moved due to news/fear/greed)
+3. Emotional failures are excluded from ML training
+4. ML learns only from analytical mistakes, improving technical indicator usage
+
+**ML Training in Training Mode:**
+
+- **ML System 1 (Technical Predictor)**: Trains on technical trades, excludes emotional/mixed failures
+- **ML System 2 (News Impact Predictor)**: Excludes ALL training mode trades (since psychology wasn't used for trade decisions, the psychology data isn't representative of how news impacts trades in normal mode)
+
+**To stop training mode**: Press `Ctrl+C`
+
+### Backtest Mode
+
+Run historical backtesting:
+
+```bash
+python main.py --backtest
+```
 
 ## Output
 

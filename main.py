@@ -447,8 +447,8 @@ ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
 
 # Training Mode Configuration
 TRAINING_MODE = False  # Set to True to enable training mode
-TRAINING_CHECK_INTERVAL = 3600  # Seconds to wait between trade checks (1 hour default)
-TRAINING_RETRAIN_AFTER = 10  # Retrain ML after this many completed trades in training mode
+TRAINING_CHECK_INTERVAL = 1800  # Seconds to wait between trade checks (30 minutes)
+TRAINING_RETRAIN_AFTER = 1  # Retrain ML after this many NEW completed trades in training mode
 
 # LLM Configuration for News Analysis (Groq - MANDATORY)
 # LLM analysis is now mandatory and always enabled
@@ -1885,7 +1885,8 @@ def log_trades(results):
             'entry_news_count': r.get('news_count', 0),
             'volatility_hourly': r.get('volatility_hourly', 0),
             'atr_pct': r.get('atr_pct', 0),
-            'psychology': r.get('psychology')
+            'psychology': r.get('psychology'),
+            'training_mode': TRAINING_MODE  # Mark if collected in training mode
         }
         
         logs.append(trade)
@@ -1992,8 +1993,10 @@ def evaluate_trades():
                 # In training mode, mark emotional failures to avoid using them for training
                 if TRAINING_MODE and classification['failure_type'] in ['emotional', 'mixed']:
                     trade['excluded_from_training'] = True
+                    trade['training_mode'] = True  # Mark as collected in training mode
                     if DEBUG:
                         print(f"  TRAINING MODE: Excluding {symbol} from ML training (emotional/mixed failure)")
+                        print(f"  TRAINING MODE: Also excluded from News Impact ML (collected with neutral sentiment)")
                 
                 # If it was emotional failure and psychology was used, evaluate AI performance
                 if classification['failure_type'] in ['emotional', 'mixed'] and psychology_data:
@@ -2390,12 +2393,17 @@ async def main(backtest_only=False, training_mode=False):
         print("  - Telegram: Disabled")
         print("  - Failure Classification: Active (prevents bad training)")
         print("  - Check Interval: {} seconds".format(TRAINING_CHECK_INTERVAL))
-        print("  - Auto-retrain: After {} completed trades".format(TRAINING_RETRAIN_AFTER))
+        print("  - Auto-retrain: After every {} new completed trade(s)".format(TRAINING_RETRAIN_AFTER))
         print()
         print("Why collect psychology if not using it?")
         print("  - Determines if trade failed due to poor analytics OR news/emotion")
         print("  - Emotional failures are EXCLUDED from ML training")
         print("  - Ensures ML learns only from analytical mistakes")
+        print()
+        print("ML Training Exclusions in Training Mode:")
+        print("  - ML System 1 (Technical): Excludes emotional/mixed failures")
+        print("  - ML System 2 (News Impact): Excludes ALL training mode trades")
+        print("  - Reason: Psychology not used for decisions, so can't train on it")
         print("=" * 70)
         print()
     
@@ -3074,7 +3082,7 @@ if __name__ == '__main__':
             print("  - Keeps failure classification AI active")
             print("  - Loops continuously until stopped (Ctrl+C)")
             print("  - Checks trade results every {} seconds".format(TRAINING_CHECK_INTERVAL))
-            print("  - Auto-retrains ML after {} completed trades".format(TRAINING_RETRAIN_AFTER))
+            print("  - Auto-retrains ML after every {} new completed trade(s)".format(TRAINING_RETRAIN_AFTER))
             sys.exit(0)
     
     if training_mode:
@@ -3110,6 +3118,13 @@ if __name__ == '__main__':
         
         signal.signal(signal.SIGINT, signal_handler)
         
+        # Track completed trades to know when to retrain
+        previous_completed_count = 0
+        if os.path.exists(TRADE_LOG_FILE):
+            with open(TRADE_LOG_FILE, 'r') as f:
+                all_trades = json.load(f)
+            previous_completed_count = len([t for t in all_trades if t.get('status') in ['win', 'loss']])
+        
         # Training loop
         while True:
             iteration += 1
@@ -3122,26 +3137,40 @@ if __name__ == '__main__':
                 # Run main with training mode
                 results = asyncio.run(main(backtest_only=False, training_mode=True))
                 
-                # Check if we should retrain ML
+                # Check if we have new completed trades and should retrain ML
                 if os.path.exists(TRADE_LOG_FILE):
                     with open(TRADE_LOG_FILE, 'r') as f:
                         all_trades = json.load(f)
                     completed = [t for t in all_trades if t.get('status') in ['win', 'loss']]
+                    current_completed_count = len(completed)
                     
-                    # Retrain after every TRAINING_RETRAIN_AFTER completed trades
-                    if len(completed) >= TRAINING_RETRAIN_AFTER and len(completed) % TRAINING_RETRAIN_AFTER == 0:
+                    # Calculate new completed trades since last check
+                    new_completed = current_completed_count - previous_completed_count
+                    
+                    if new_completed > 0:
                         print("\n" + "-"*70)
-                        print(f"RETRAINING ML MODEL ({len(completed)} completed trades)")
+                        print(f"NEW COMPLETED TRADES: {new_completed} (total: {current_completed_count})")
                         print("-"*70)
-                        try:
-                            if ML_ENABLED and ML_AVAILABLE:
-                                ml_predictor = get_ml_predictor()
-                                if ml_predictor.train(TRADE_LOG_FILE):
-                                    print("✓ ML model retrained successfully")
-                                else:
-                                    print("⚠ ML retraining skipped (insufficient data)")
-                        except Exception as e:
-                            print(f"ML retraining error: {e}")
+                        
+                        # Retrain after every new completed trade(s)
+                        if new_completed >= TRAINING_RETRAIN_AFTER:
+                            print(f"RETRAINING ML MODEL ({new_completed} new completed trades)")
+                            print("-"*70)
+                            try:
+                                if ML_ENABLED and ML_AVAILABLE:
+                                    ml_predictor = get_ml_predictor()
+                                    if ml_predictor.train(TRADE_LOG_FILE):
+                                        wins = sum(1 for t in completed if t.get('status') == 'win')
+                                        win_rate = wins / current_completed_count if current_completed_count > 0 else 0
+                                        print(f"✓ ML model retrained successfully")
+                                        print(f"  Current dataset: {current_completed_count} trades, {win_rate:.2%} win rate")
+                                        previous_completed_count = current_completed_count
+                                    else:
+                                        print("⚠ ML retraining skipped (insufficient data - need 50+ completed trades)")
+                            except Exception as e:
+                                print(f"ML retraining error: {e}")
+                    else:
+                        print(f"\nNo new completed trades yet (total: {current_completed_count})")
                 
                 print("\n" + "-"*70)
                 print(f"Iteration {iteration} complete. Waiting {TRAINING_CHECK_INTERVAL} seconds...")

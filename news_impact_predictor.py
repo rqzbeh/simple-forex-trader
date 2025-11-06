@@ -183,6 +183,7 @@ class NewsImpactPredictor:
             'entry_news_count': 5,
             'entry_sentiment': 0.3,
             'news_articles': [...]  # Optional: saved news at entry
+            'training_mode': True/False  # If True, exclude from training
         }
         """
         if not os.path.exists(trade_log_file):
@@ -201,12 +202,18 @@ class NewsImpactPredictor:
         X = []
         y = []
         texts = []
+        excluded_training_mode = 0
         
         for trade in trades:
             status = trade.get('status', 'open')
             
             # Skip open trades
             if status == 'open':
+                continue
+            
+            # Skip trades collected in training mode (psychology data invalid for news impact)
+            if trade.get('training_mode', False):
+                excluded_training_mode += 1
                 continue
             
             # Create synthetic text from available data for training
@@ -234,6 +241,9 @@ class NewsImpactPredictor:
             
             # Collect text for future TF-IDF training (placeholder)
             texts.append(f"news_count_{news_count} sentiment_{sentiment}")
+        
+        if excluded_training_mode > 0:
+            logger.info(f"Excluded {excluded_training_mode} trades collected in training mode (psychology not used for decisions)")
         
         if len(X) < self.min_training_samples:
             logger.warning(f"Not enough completed trades: {len(X)} < {self.min_training_samples}")
