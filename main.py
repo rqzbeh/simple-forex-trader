@@ -14,24 +14,10 @@ from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
 import yfinance as yf
 
-# Only keep data providers that return REAL calculated indicators (not placeholders)
-try:
-    from polygon import RESTClient as PolygonRESTClient
-except ImportError:
-    PolygonRESTClient = None
-
-try:
-    from twelvedata import TDClient
-except ImportError:
-    TDClient = None
-
-# REMOVED: Alpha Vantage - returns placeholder values for indicators
-# REMOVED: IEX Cloud - returns placeholder values for indicators  
-# REMOVED: FMP - returns placeholder values for indicators
-# REMOVED: Quandl - returns fake placeholder data
-# REMOVED: FRED - not applicable for FX/stock tickers
-# These providers don't provide historical intraday data needed for real indicator calculations
-# Keeping only yfinance (primary), Polygon, and TwelveData which calculate real indicators
+# Data provider: ONLY yfinance (provides all 14 indicators calculated from real historical data)
+# REMOVED: Polygon, TwelveData - only provided 4/14 indicators, returned 0 for others which diluted signal strength
+# REMOVED: Alpha Vantage, IEX, FMP, Quandl, FRED - returned placeholder/fake data
+# yfinance is sufficient and provides the most complete, accurate data
 
 try:
     from ml_predictor import get_ml_predictor
@@ -81,11 +67,9 @@ if not NEWS_API_KEY:
 ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')  # REMOVED - not used anymore
 IEX_API_TOKEN = os.getenv('IEX_API_TOKEN')  # REMOVED - not used anymore
 
-# Data provider API keys - Only those that provide REAL indicator calculations
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')  # Optional - provides real indicators
-TWELVE_DATA_API_KEY = os.getenv('TWELVE_DATA_API_KEY')  # Optional - provides real indicators
-
-# REMOVED: FMP, Quandl, FRED - these returned placeholder/fake data
+# No additional API keys needed - yfinance is free and sufficient
+# REMOVED: POLYGON_API_KEY, TWELVE_DATA_API_KEY - these providers only calculated 4/14 indicators
+#          and returned 0 for missing ones, which diluted signal strength and messed up analytics
 
 # Groq Rate Limiting (Free Tier: 1k requests/day, 500k tokens/day)
 # Set GROQ_ENFORCE_LIMITS=false to disable limits (may exceed free tier)
@@ -96,17 +80,10 @@ GROQ_ENFORCE_LIMITS = os.getenv('GROQ_ENFORCE_LIMITS', 'true').lower() == 'true'
 print("API Keys status:")
 print(f"NEWS_API_KEY: {'Set' if NEWS_API_KEY else 'Not set'}")
 print(f"GROQ_API_KEY: {'Set' if os.getenv('GROQ_API_KEY') else 'Not set (REQUIRED)'}")
-print(f"POLYGON_API_KEY: {'Set (optional)' if POLYGON_API_KEY else 'Not set (optional)'}")
-print(f"TWELVE_DATA_API_KEY: {'Set (optional)' if TWELVE_DATA_API_KEY else 'Not set (optional)'}")
 print(f"Groq Rate Limits: {'Disabled' if not GROQ_ENFORCE_LIMITS else f'{GROQ_MAX_REQUESTS_PER_DAY} req/day, {GROQ_MAX_TOKENS_PER_DAY} tokens/day'}")
 print()
-print("Data providers: yfinance (primary), Polygon (optional), TwelveData (optional)")
-print("Removed providers: Alpha Vantage, IEX, FMP, Quandl, FRED (returned fake/placeholder data)")
-
-
-# Initialize clients lazily when keys are present
-_polygon_client = PolygonRESTClient(POLYGON_API_KEY) if POLYGON_API_KEY and PolygonRESTClient else None
-_td_client = TDClient(apikey=TWELVE_DATA_API_KEY) if TWELVE_DATA_API_KEY and TDClient else None
+print("Data provider: yfinance only (free, complete, accurate)")
+print("Removed: All other providers (incomplete indicators or fake/placeholder data)")
 
 newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
@@ -846,299 +823,6 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
 
 
 
-@lru_cache(maxsize=100)
-def _get_polygon_data(yf_symbol):
-    """Get data from Polygon with full indicators."""
-    if not POLYGON_API_KEY or not _polygon_client:
-        return None
-    try:
-        symbol = yf_symbol.replace('=X', '')
-        # For forex, Polygon uses 'C:EURUSD' format
-        if len(symbol) == 6 and symbol.isalpha():
-            symbol = f'C:{symbol[:3]}{symbol[3:]}'
-        # Fetch 1h aggregates for last 3 days
-        from datetime import datetime, timedelta
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=3)
-        aggs = _polygon_client.get_aggs(symbol, 1, 'hour', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-        if not aggs or len(aggs) < 26:
-            return None
-        # Convert to DataFrame-like
-        import pandas as pd
-        df = pd.DataFrame([{'Close': a.close, 'High': a.high, 'Low': a.low, 'Open': a.open, 'Volume': a.volume} for a in aggs])
-        if df.empty or len(df) < 26:
-            print(f'Polygon insufficient data for {yf_symbol}')
-            return None
-        close = df['Close'].dropna()
-        high = df['High'].dropna()
-        low = df['Low'].dropna()
-        volume = df['Volume'].dropna()
-        current_price = float(close.iloc[-1])
-
-        # Compute indicators like yfinance
-        hourly_returns = close.pct_change().dropna()
-        vol_hourly = hourly_returns.std()
-        tr = []
-        for i in range(1, len(high)):
-            tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
-        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
-        atr_pct = atr / current_price
-
-        # Pivots
-        prev_day = df.iloc[-24:]  # Approximate last day
-        if len(prev_day) > 0:
-            pivot = (prev_day['High'].max() + prev_day['Low'].min() + prev_day['Close'].iloc[-1]) / 3
-            r1 = 2 * pivot - prev_day['Low'].min()
-            s1 = 2 * pivot - prev_day['High'].max()
-            r2 = pivot + (prev_day['High'].max() - prev_day['Low'].min())
-            s2 = pivot - (prev_day['High'].max() - prev_day['Low'].min())
-        else:
-            pivot = r1 = r2 = s1 = s2 = current_price
-
-        recent_high = high.tail(20).max()
-        recent_low = low.tail(20).min()
-
-        psych_level = round(current_price * 100) / 100
-
-        candle_signal = 0
-        if len(close) >= 3:
-            last3 = close.tail(3).values
-            if last3[2] > last3[1] > last3[0]:
-                candle_signal = 1
-            elif last3[2] < last3[1] < last3[0]:
-                candle_signal = -1
-
-        # Ichimoku (simplified)
-        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        senkou_a = ((tenkan + kijun) / 2).shift(26)
-        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-        ichimoku_signal = 0
-        if len(tenkan) > 0 and len(kijun) > 0 and len(senkou_a) > 0 and len(senkou_b) > 0:
-            if (current_price > senkou_a.iloc[-1] and current_price > senkou_b.iloc[-1] and 
-                tenkan.iloc[-1] > kijun.iloc[-1] and senkou_a.iloc[-1] > senkou_b.iloc[-1]):
-                ichimoku_signal = 1
-            elif (current_price < senkou_a.iloc[-1] and current_price < senkou_b.iloc[-1] and 
-                  tenkan.iloc[-1] < kijun.iloc[-1] and senkou_a.iloc[-1] < senkou_b.iloc[-1]):
-                ichimoku_signal = -1
-
-        volume_avg = volume.tail(20).mean()
-        recent_volume = volume.iloc[-1]
-        volume_signal = 0
-        if recent_volume > volume_avg * 1.2:
-            if close.iloc[-1] > close.iloc[-2]:
-                volume_signal = 1
-            elif close.iloc[-1] < close.iloc[-2]:
-                volume_signal = -1
-
-        fvg_signal = 0
-        if len(close) >= 4:
-            if low.iloc[-1] > high.iloc[-3]:
-                fvg_signal = 1
-            elif high.iloc[-1] < low.iloc[-3]:
-                fvg_signal = -1
-
-        # VWAP
-        if len(close) >= 2 and volume.sum() > 0:
-            vwap = (close * volume).cumsum() / volume.cumsum()
-            vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
-        else:
-            vwap_signal = 0
-
-        # Stochastic Oscillator
-        if len(close) >= 14:
-            lowest_low = low.rolling(window=14).min()
-            highest_high = high.rolling(window=14).max()
-            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-            stoch_d = stoch_k.rolling(window=3).mean()
-            stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
-        else:
-            stoch_signal = 0
-
-        # CCI
-        if len(close) >= 20:
-            typical_price = (high + low + close) / 3
-            sma_tp = typical_price.rolling(window=20).mean()
-            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
-            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-            cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
-        else:
-            cci_signal = 0
-
-        return {
-            'price': current_price,
-            'volatility_hourly': float(vol_hourly),
-            'atr_pct': float(atr_pct),
-            'pivot': float(pivot),
-            'r1': float(r1), 'r2': float(r2),
-            's1': float(s1), 's2': float(s2),
-            'support': float(recent_low),
-            'resistance': float(recent_high),
-            'psych_level': float(psych_level),
-            'rsi_signal': 0,  # Placeholder for polygon
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': fvg_signal,
-            'vwap_signal': vwap_signal,
-            'stoch_signal': stoch_signal,
-            'cci_signal': cci_signal
-        }
-    except Exception as e:
-        print(f'Polygon fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
-def _get_twelvedata_data(yf_symbol):
-    """Get data from Twelve Data with full indicators."""
-    if not TWELVE_DATA_API_KEY or not _td_client:
-        return None
-    try:
-        sym = yf_symbol.replace('=X', '')
-        if len(sym) == 6 and sym.isalpha():
-            print(f'Twelve Data does not support forex for {yf_symbol}')
-            return None
-        series = _td_client.time_series(symbol=sym, interval='1h', outputsize=100)
-        data = series.as_json()
-        if isinstance(data, tuple):
-            data = data[0]  # Assume first element is the data
-        values = data.get('values', [])
-        if not values or len(values) < 26:
-            print(f'Twelve Data insufficient data for {yf_symbol}')
-            return None
-        # Convert to DataFrame
-        import pandas as pd
-        df = pd.DataFrame(values)
-        df['close'] = df['close'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['volume'] = df['volume'].astype(float)
-        close = df['close']
-        high = df['high']
-        low = df['low']
-        volume = df['volume']
-        current_price = float(close.iloc[0])  # Most recent first
-
-        # Compute indicators
-        hourly_returns = close.pct_change().dropna()
-        vol_hourly = hourly_returns.std()
-        tr = []
-        for i in range(1, len(high)):
-            tr.append(max(high.iloc[i] - low.iloc[i], abs(high.iloc[i] - close.iloc[i-1]), abs(low.iloc[i] - close.iloc[i-1])))
-        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else 0
-        atr_pct = atr / current_price
-
-        # Pivots (approximate last day ~24 hours)
-        prev_day = df.iloc[24:48] if len(df) > 48 else df.tail(24)
-        if len(prev_day) > 0:
-            pivot = (prev_day['high'].max() + prev_day['low'].min() + prev_day['close'].iloc[-1]) / 3
-            r1 = 2 * pivot - prev_day['low'].min()
-            s1 = 2 * pivot - prev_day['high'].max()
-            r2 = pivot + (prev_day['high'].max() - prev_day['low'].min())
-            s2 = pivot - (prev_day['high'].max() - prev_day['low'].min())
-        else:
-            pivot = r1 = r2 = s1 = s2 = current_price
-
-        recent_high = high.head(20).max()  # Since most recent first
-        recent_low = low.head(20).min()
-
-        psych_level = round(current_price * 100) / 100
-
-        candle_signal = 0
-        if len(close) >= 3:
-            last3 = close.head(3).values  # Most recent first
-            if last3[0] > last3[1] > last3[2]:  # Rising (reverse order)
-                candle_signal = 1
-            elif last3[0] < last3[1] < last3[2]:
-                candle_signal = -1
-
-        # Ichimoku
-        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-        senkou_a = ((tenkan + kijun) / 2).shift(-26)  # Shift forward since most recent first
-        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(-26)
-        ichimoku_signal = 0
-        if len(tenkan) > 0 and len(kijun) > 0 and len(senkou_a) > 0 and len(senkou_b) > 0:
-            if (current_price > senkou_a.iloc[0] and current_price > senkou_b.iloc[0] and 
-                tenkan.iloc[0] > kijun.iloc[0] and senkou_a.iloc[0] > senkou_b.iloc[0]):
-                ichimoku_signal = 1
-            elif (current_price < senkou_a.iloc[0] and current_price < senkou_b.iloc[0] and 
-                  tenkan.iloc[0] < kijun.iloc[0] and senkou_a.iloc[0] < senkou_b.iloc[0]):
-                ichimoku_signal = -1
-
-        volume_avg = volume.head(20).mean()
-        recent_volume = volume.iloc[0]
-        volume_signal = 0
-        if recent_volume > volume_avg * 1.2:
-            if close.iloc[0] > close.iloc[1]:
-                volume_signal = 1
-            elif close.iloc[0] < close.iloc[1]:
-                volume_signal = -1
-
-        fvg_signal = 0
-        if len(close) >= 4:
-            if low.iloc[0] > high.iloc[2]:
-                fvg_signal = 1
-            elif high.iloc[0] < low.iloc[2]:
-                fvg_signal = -1
-
-        # VWAP
-        if len(close) >= 2 and volume.sum() > 0:
-            vwap = (close * volume).cumsum() / volume.cumsum()
-            vwap_signal = 1 if close.iloc[0] > vwap.iloc[0] else -1
-        else:
-            vwap_signal = 0
-
-        # Stochastic Oscillator
-        if len(close) >= 14:
-            lowest_low = low.rolling(window=14).min()
-            highest_high = high.rolling(window=14).max()
-            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-            stoch_d = stoch_k.rolling(window=3).mean()
-            stoch_signal = 1 if stoch_k.iloc[0] < 20 else -1 if stoch_k.iloc[0] > 80 else 0
-        else:
-            stoch_signal = 0
-
-        # CCI
-        if len(close) >= 20:
-            typical_price = (high + low + close) / 3
-            sma_tp = typical_price.rolling(window=20).mean()
-            mean_dev = typical_price.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
-            cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-            cci_signal = 1 if cci.iloc[0] < -100 else -1 if cci.iloc[0] > 100 else 0
-        else:
-            cci_signal = 0
-
-        return {
-            'price': current_price,
-            'volatility_hourly': float(vol_hourly),
-            'atr_pct': float(atr_pct),
-            'pivot': float(pivot),
-            'r1': float(r1), 'r2': float(r2),
-            's1': float(s1), 's2': float(s2),
-            'support': float(recent_low),
-            'resistance': float(recent_high),
-            'psych_level': float(psych_level),
-            'rsi_signal': 0,  # Placeholder
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': fvg_signal,
-            'vwap_signal': vwap_signal,
-            'stoch_signal': stoch_signal,
-            'cci_signal': cci_signal
-        }
-    except Exception as e:
-        print(f'Twelve Data fetch error for {yf_symbol}: {e}')
-        return None
-
-
-@lru_cache(maxsize=100)
 def calculate_hurst_exponent(price_series, max_lag=20):
     """Calculate Hurst exponent for trend persistence."""
     if len(price_series) < max_lag * 2:
@@ -2795,34 +2479,8 @@ async def get_market_data_async(yf_symbol, kind='forex', session=None):
     if data:
         print(f"yfinance success for {yf_symbol}")
         return data
-    else:
-        print(f"yfinance failed for {yf_symbol}")
     
-    # Fallback to Polygon
-    if not POLYGON_API_KEY:
-        print(f"Skipping Polygon for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Polygon for {yf_symbol}...")
-        data = _get_polygon_data(yf_symbol)
-        if data:
-            print(f"Polygon success for {yf_symbol}")
-            return data
-        else:
-            print(f"Polygon failed for {yf_symbol}")
-
-    # Fallback to TwelveData
-    if not TWELVE_DATA_API_KEY:
-        print(f"Skipping Twelve Data for {yf_symbol} (no key)")
-    else:
-        print(f"Attempting Twelve Data for {yf_symbol}...")
-        data = _get_twelvedata_data(yf_symbol)
-        if data:
-            print(f"Twelve Data success for {yf_symbol}")
-            return data
-        else:
-            print(f"Twelve Data failed for {yf_symbol}")
-    
-    print(f"All sources failed for {yf_symbol}")
+    print(f"yfinance failed for {yf_symbol}")
     return None
 
 if __name__ == '__main__':

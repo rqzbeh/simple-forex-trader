@@ -93,7 +93,7 @@ A Python-based trading signal generator that analyzes forex, commodities, and in
   - ADX (Average Directional Index) - Trend strength
   - Williams %R - Momentum oscillator
   - Parabolic SAR - Trend and stop placement
-- **Real Data Sources**: YFinance (primary), with optional fallback to Polygon and Twelve Data - **all calculate real indicators, no fake/placeholder data**
+- **Data Source**: YFinance provides all 14 indicators calculated from real historical data
 - **Signal Generation**: Provides entry, stop loss, and take profit levels for manual trading
 - **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
@@ -123,9 +123,7 @@ pip install -r requirements.txt
 Or manually:
 
 ```bash
-pip install newsapi-python yfinance requests scikit-learn numpy pandas joblib groq
-# Optional data providers (only if you have API keys):
-pip install polygon-api-client twelvedata
+pip install newsapi-python yfinance requests aiohttp scikit-learn numpy pandas joblib groq
 ```
 
 ## Installation
@@ -153,10 +151,6 @@ Set the following environment variables:
 - `NEWS_API_KEY`: Your NewsAPI key (required)
 - `GROQ_API_KEY`: Your Groq API key (REQUIRED - get free tier at console.groq.com)
 
-**Optional Data Providers (for fallback if yfinance fails):**
-- `POLYGON_API_KEY`: Your Polygon.io API key (optional)
-- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (optional)
-
 **Optional Configuration:**
 - `LLM_PROVIDER`: LLM provider (only `groq` is supported, default: groq)
 - `LLM_MODEL`: Specific model to use (default: `llama-3.3-70b-versatile`)
@@ -174,13 +168,6 @@ Set the following environment variables:
 - `SHARPE_TRACKING_ENABLED`: Enable Sharpe ratio tracking and optimization (default: true)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
-
-**Removed (returned fake/placeholder data):**
-- ~~`ALPHA_VANTAGE_API_KEY`~~ - Removed
-- ~~`IEX_API_TOKEN`~~ - Removed
-- ~~`FMP_API_KEY`~~ - Removed
-- ~~`QUANDL_API_KEY`~~ - Removed
-- ~~`FRED_API_KEY`~~ - Removed
 
 ### Settings
 
