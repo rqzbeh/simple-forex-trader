@@ -410,9 +410,9 @@ DEFAULT_SYMBOLS = [
 
 # Risk settings (optimized based on industry best practices)
 MIN_STOP_PCT = 0.0008  # 0.08% (0.0008 as decimal) - More realistic stops to avoid premature exits
-EXPECTED_RETURN_PER_SENTIMENT = 0.012  # 1.2% per sentiment point (0.012 as decimal)
-NEWS_COUNT_BONUS = 0.003  # 0.3% per article (appropriate news impact)
-MAX_NEWS_BONUS = 0.015  # Max 1.5% bonus from news
+EXPECTED_RETURN_PER_SENTIMENT = 0.020  # 2.0% per sentiment point (increased from 1.2% to generate more trades)
+NEWS_COUNT_BONUS = 0.004  # 0.4% per article (increased from 0.3%)
+MAX_NEWS_BONUS = 0.020  # Max 2.0% bonus from news (increased from 1.5%)
 
 # Leverage caps - Optimized for safety and regulatory compliance
 MAX_LEVERAGE_FOREX = 50  # Reduced to 50:1 for better risk management (EU standard)
@@ -422,9 +422,9 @@ MAX_LEVERAGE_STOCK = 5    # Increased to 5:1 for stocks (more reasonable)
 LOW_MONEY_MODE = True
 
 if LOW_MONEY_MODE:
-    EXPECTED_RETURN_PER_SENTIMENT = 0.015  # 1.5% (0.015 as decimal) - Better ROI for small accounts
-    NEWS_COUNT_BONUS = 0.004  # 0.4% - Enhanced news impact
-    MAX_NEWS_BONUS = 0.02  # 2% - Higher max bonus
+    EXPECTED_RETURN_PER_SENTIMENT = 0.025  # 2.5% (increased from 1.5% for small accounts)
+    NEWS_COUNT_BONUS = 0.005  # 0.5% (increased from 0.4%)
+    MAX_NEWS_BONUS = 0.025  # 2.5% (increased from 2%)
     MIN_STOP_PCT = 0.0006  # 0.06% (0.0006 as decimal) - Tighter but realistic stops
 
 # Daily risk limit (optimized for consistent profitability)
@@ -454,7 +454,6 @@ PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_T
 BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
 BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
 BACKTEST_ADJUST_THRESHOLD = 0.55  # More realistic win rate threshold (55%) for adjustments
-BACKTEST_TEST_MODE = False  # Use fake data for testing (set to False for real backtesting)
 
 # Indicator weights (optimized based on backtesting and industry research)
 RSI_WEIGHT = 1.3  # RSI is highly reliable
@@ -1617,8 +1616,8 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex', n
     bearish_signals = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
     total_signals = bullish_signals + bearish_signals
 
-    # Require at least 3 agreeing signals for trade
-    min_confirmations = 3
+    # Require at least 2 agreeing signals for trade (reduced from 3)
+    min_confirmations = 2
 
     # decide direction based on sentiment and confirmations
     direction = 'flat'
@@ -1634,14 +1633,14 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex', n
                 direction = 'flat'  # Not enough technical confirmation for news direction
     else:
         # Normal technical + sentiment analysis
-        if avg_sentiment > 0.05 and bullish_signals >= min_confirmations:
+        if avg_sentiment > 0.03 and bullish_signals >= min_confirmations:  # Reduced from 0.05
             direction = 'long'
-        elif avg_sentiment < -0.05 and bearish_signals >= min_confirmations:
+        elif avg_sentiment < -0.03 and bearish_signals >= min_confirmations:  # Reduced from -0.05
             direction = 'short'
-        # Allow technical-only trades if strong signals
-        elif bullish_signals >= 4:
+        # Allow technical-only trades if strong signals (reduced from 4 to 3)
+        elif bullish_signals >= 3:
             direction = 'long'
-        elif bearish_signals >= 4:
+        elif bearish_signals >= 3:
             direction = 'short'
 
     lev = recommend_leverage(rr, vol, kind=kind)
@@ -1922,12 +1921,8 @@ def backtest_parameters():
     
     print(f"Running backtest on last {BACKTEST_PERIOD_DAYS} days of data...")
     
-    if BACKTEST_TEST_MODE:
-        # Fake test data to demonstrate adjustments
-        backtest_results = {'total_trades': 100, 'wins': 30, 'losses': 70, 'total_return': -0.05}  # 30% win rate, poor performance
-        print("TEST MODE: Using fake backtest data for demonstration.")
-    else:
-        backtest_results = {'total_trades': 0, 'wins': 0, 'losses': 0, 'total_return': 0.0}
+    # Always use real backtest data
+    backtest_results = {'total_trades': 0, 'wins': 0, 'losses': 0, 'total_return': 0.0}
         
         # Test on expanded symbols for more accurate validation
         test_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'GC=F', 'CL=F', 'ZW=F', 'ZC=F']
@@ -2235,10 +2230,10 @@ async def main(backtest_only=False):
             print("It's a weekend—skipping trades to avoid low liquidity.")
             return []  # Skip trading on weekends
         
-        # Only trade in active sessions
-        if current_session not in ['London', 'New York']:
-            print(f"Current session '{current_session}' is not active for trading—skipping to focus on high liquidity periods.")
-            return []  # Only trade in London or NY sessions
+        # Trade in all sessions except weekend
+        if current_session == 'Weekend (no trading)':
+            print(f"Current session '{current_session}' is not active for trading—skipping weekend.")
+            return []  # Skip trading on weekends only
         
         global EXPECTED_RETURN_PER_SENTIMENT
         EXPECTED_RETURN_PER_SENTIMENT *= session_multiplier
