@@ -1794,6 +1794,7 @@ def evaluate_trades():
     indicator_losses = {'rsi': 0, 'macd': 0, 'bb': 0, 'trend': 0, 'advanced_candle': 0, 'obv': 0, 'fvg': 0, 'vwap': 0, 'stoch': 0, 'cci': 0, 'hurst': 0, 'adx': 0, 'williams_r': 0, 'sar': 0}
     total_wins = 0
     total = 0
+    evaluated_count = 0
     
     for trade in logs:
         if trade['status'] != 'open':
@@ -1807,7 +1808,10 @@ def evaluate_trades():
         try:
             ticker = yf.Ticker(yf_symbol)
             current_price = float(ticker.history(period='1d')['Close'].iloc[-1])
-        except:
+            evaluated_count += 1
+        except Exception as e:
+            if DEBUG:
+                print(f"Could not evaluate {symbol}: {e}")
             continue
         direction = trade['direction']
         stop = trade['stop_price']
@@ -1893,6 +1897,16 @@ def evaluate_trades():
     if total > 0:
         win_rate = total_wins / total
         print(f"Evaluated {total} trades, win rate: {win_rate:.2%}")
+    else:
+        # Report why no trades were evaluated
+        open_trades = [t for t in logs if t.get('status') == 'open']
+        completed_trades = [t for t in logs if t.get('status') in ['win', 'loss']]
+        print(f"Evaluated 0 new trades (evaluated {evaluated_count} prices)")
+        print(f"  Open trades: {len(open_trades)}, Completed trades: {len(completed_trades)}")
+        if len(open_trades) > 0 and evaluated_count == 0:
+            print(f"  ⚠ WARNING: Cannot evaluate trades - network/data access issue")
+    
+    if total > 0:
         
         # Adjust weights per indicator
         for ind in ['rsi', 'macd', 'bb', 'trend', 'advanced_candle', 'obv', 'fvg', 'vwap', 'stoch', 'cci', 'hurst', 'adx', 'williams_r', 'sar']:
@@ -2602,8 +2616,18 @@ async def main(backtest_only=False):
             
             if should_retrain:
                 print("Training/retraining ML model...")
+                # Check trade data first
+                if os.path.exists(TRADE_LOG_FILE):
+                    with open(TRADE_LOG_FILE, 'r') as f:
+                        all_trades = json.load(f)
+                    completed = [t for t in all_trades if t.get('status') in ['win', 'loss']]
+                    print(f"  Trade log: {len(all_trades)} total, {len(completed)} completed")
+                    if len(completed) < 50:
+                        print(f"  ⚠ Need 50+ completed trades to train ML (have {len(completed)})")
+                        print(f"  Tip: Run bot more times to accumulate trade history")
+                
                 if ml_predictor.train(TRADE_LOG_FILE):
-                    print("ML model trained successfully")
+                    print("✓ ML model trained successfully")
                     with open(retrain_file, 'w') as f:
                         json.dump({'timestamp': datetime.now().isoformat()}, f)
                 else:
