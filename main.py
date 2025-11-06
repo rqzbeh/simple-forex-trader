@@ -126,6 +126,10 @@ newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
 def send_telegram_message(message):
     """Send a message via Telegram bot."""
+    # Skip in training mode
+    if TRAINING_MODE:
+        return
+    
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     if not bot_token or not chat_id:
@@ -440,6 +444,11 @@ NEWS_IMPACT_ENABLED = True  # Enable news impact analysis for trade direction
 ML_MIN_CONFIDENCE = 0.60  # Minimum confidence for ML predictions
 ML_MIN_PROBABILITY = 0.55  # Minimum win probability from ML
 ML_RETRAIN_INTERVAL = 24  # Retrain model every 24 hours
+
+# Training Mode Configuration
+TRAINING_MODE = False  # Set to True to enable training mode
+TRAINING_CHECK_INTERVAL = 3600  # Seconds to wait between trade checks (1 hour default)
+TRAINING_RETRAIN_AFTER = 10  # Retrain ML after this many completed trades in training mode
 
 # LLM Configuration for News Analysis (Groq - MANDATORY)
 # LLM analysis is now mandatory and always enabled
@@ -1952,6 +1961,7 @@ def evaluate_trades():
         total += 1
         
         # Classify failure type if it was a loss
+        # In training mode, this is CRITICAL to prevent bad training from emotional market moves
         if not win and trade['status'] == 'loss':
             try:
                 # Import here to avoid circular dependencies
@@ -1978,6 +1988,12 @@ def evaluate_trades():
                 # Store classification in trade log
                 trade['failure_classification'] = classification
                 trade['failure_type'] = classification['failure_type']
+                
+                # In training mode, mark emotional failures to avoid using them for training
+                if TRAINING_MODE and classification['failure_type'] in ['emotional', 'mixed']:
+                    trade['excluded_from_training'] = True
+                    if DEBUG:
+                        print(f"  TRAINING MODE: Excluding {symbol} from ML training (emotional/mixed failure)")
                 
                 # If it was emotional failure and psychology was used, evaluate AI performance
                 if classification['failure_type'] in ['emotional', 'mixed'] and psychology_data:
@@ -2357,7 +2373,32 @@ def print_current_parameters():
     print(f"SAR_WEIGHT: {SAR_WEIGHT:.2f}")
     print("====================================")
 
-async def main(backtest_only=False):
+async def main(backtest_only=False, training_mode=False):
+    # Set global training mode flag
+    global TRAINING_MODE
+    TRAINING_MODE = training_mode
+    
+    if training_mode:
+        print("=" * 70)
+        print("TRAINING MODE ENABLED")
+        print("=" * 70)
+        print("Configuration:")
+        print("  - Focus: Technical analysis only")
+        print("  - News/Sentiment: Minimal (sentiment neutralized to 0)")
+        print("  - Psychology Data: COLLECTED (for failure classification)")
+        print("  - Psychology Adjustments: DISABLED (pure technical trades)")
+        print("  - Telegram: Disabled")
+        print("  - Failure Classification: Active (prevents bad training)")
+        print("  - Check Interval: {} seconds".format(TRAINING_CHECK_INTERVAL))
+        print("  - Auto-retrain: After {} completed trades".format(TRAINING_RETRAIN_AFTER))
+        print()
+        print("Why collect psychology if not using it?")
+        print("  - Determines if trade failed due to poor analytics OR news/emotion")
+        print("  - Emotional failures are EXCLUDED from ML training")
+        print("  - Ensures ML learns only from analytical mistakes")
+        print("=" * 70)
+        print()
+    
     # First, check if any previous trades hit their stop/target using real historical data
     print("Checking previous trades against real historical data...")
     check_trade_outcomes()
@@ -2387,8 +2428,17 @@ async def main(backtest_only=False):
     else:
         print("Running in backtest-only mode - bypassing session checks")
     
-    print('Forex, Commodities & Indices News Trading Bot v2.0 - Fetching latest signals (1h timeframe)...')
-    articles = get_news()
+    if training_mode:
+        print('TRAINING MODE: Fetching market data for technical analysis...')
+    else:
+        print('Forex, Commodities & Indices News Trading Bot v2.0 - Fetching latest signals (1h timeframe)...')
+    
+    # In training mode, still fetch minimal news for psychology/failure classification
+    if training_mode:
+        articles = get_news()  # Still get news for psychology analysis
+        print(f"Training mode: Fetched {len(articles)} articles (for psychology/failure classification only)")
+    else:
+        articles = get_news()
 
     # Initialize with default symbols (news optional)
     symbol_articles = {}
@@ -2422,39 +2472,73 @@ async def main(backtest_only=False):
         texts = info['texts']
         articles_for_symbol = info.get('articles', [])
         
-        # Use LLM-enhanced sentiment if available
-        avg_sent, llm_confidence, llm_analysis = analyze_sentiment_with_llm(articles_for_symbol, sym)
+        # In training mode, neutralize sentiment but KEEP psychology for failure classification
+        if training_mode:
+            avg_sent = 0.0  # Neutral sentiment - focus on technicals only
+            llm_confidence = 0.0
+            llm_analysis = {}
+            
+            # IMPORTANT: Still get psychology data in training mode
+            # This is needed to classify failures as analytical vs emotional
+            psychology = None
+            if PSYCHOLOGY_ANALYZER_AVAILABLE and articles_for_symbol:
+                try:
+                    # Get basic technical signals for context
+                    market_preview = await get_market_data_async(info['yf'], kind=info['kind'])
+                    if market_preview:
+                        tech_signals = {
+                            'rsi': market_preview.get('rsi_signal', 0),
+                            'macd': market_preview.get('macd_signal', 0),
+                            'trend': market_preview.get('trend_signal', 0)
+                        }
+                        psychology = analyze_market_psychology(
+                            articles_for_symbol, 
+                            sym, 
+                            tech_signals,
+                            market_preview.get('volatility_hourly')
+                        )
+                        
+                        if sym in DEBUG_SYMBOLS and psychology:
+                            print(f"TRAINING MODE - PSYCHOLOGY {sym}: {psychology['dominant_emotion']} "
+                                  f"(irrationality: {psychology['irrationality_score']:.2f}) "
+                                  f"[For failure classification only, NOT used in trade decision]")
+                except Exception as e:
+                    if DEBUG:
+                        print(f"Psychology analysis error for {sym}: {e}")
+        else:
+            # Use LLM-enhanced sentiment if available
+            avg_sent, llm_confidence, llm_analysis = analyze_sentiment_with_llm(articles_for_symbol, sym)
+            
+            # Analyze market psychology (fear, greed, irrationality)
+            psychology = None
+            if PSYCHOLOGY_ANALYSIS_ENABLED and PSYCHOLOGY_ANALYZER_AVAILABLE and articles_for_symbol:
+                try:
+                    # Get basic technical signals for context
+                    market_preview = await get_market_data_async(info['yf'], kind=info['kind'])
+                    if market_preview:
+                        tech_signals = {
+                            'rsi': market_preview.get('rsi_signal', 0),
+                            'macd': market_preview.get('macd_signal', 0),
+                            'trend': market_preview.get('trend_signal', 0)
+                        }
+                        psychology = analyze_market_psychology(
+                            articles_for_symbol, 
+                            sym, 
+                            tech_signals,
+                            market_preview.get('volatility_hourly')
+                        )
+                        
+                        if sym in DEBUG_SYMBOLS and psychology:
+                            print(f"PSYCHOLOGY {sym}: {psychology['dominant_emotion']} "
+                                  f"(fear/greed: {psychology['fear_greed_index']:.2f}, "
+                                  f"irrationality: {psychology['irrationality_score']:.2f}) "
+                                  f"-> {psychology['trading_recommendation']}")
+                except Exception as e:
+                    print(f"Psychology analysis error for {sym}: {e}")
         
-        # Analyze market psychology (fear, greed, irrationality)
-        psychology = None
-        if PSYCHOLOGY_ANALYSIS_ENABLED and PSYCHOLOGY_ANALYZER_AVAILABLE and articles_for_symbol:
-            try:
-                # Get basic technical signals for context
-                market_preview = await get_market_data_async(info['yf'], kind=info['kind'])
-                if market_preview:
-                    tech_signals = {
-                        'rsi': market_preview.get('rsi_signal', 0),
-                        'macd': market_preview.get('macd_signal', 0),
-                        'trend': market_preview.get('trend_signal', 0)
-                    }
-                    psychology = analyze_market_psychology(
-                        articles_for_symbol, 
-                        sym, 
-                        tech_signals,
-                        market_preview.get('volatility_hourly')
-                    )
-                    
-                    if sym in DEBUG_SYMBOLS and psychology:
-                        print(f"PSYCHOLOGY {sym}: {psychology['dominant_emotion']} "
-                              f"(fear/greed: {psychology['fear_greed_index']:.2f}, "
-                              f"irrationality: {psychology['irrationality_score']:.2f}) "
-                              f"-> {psychology['trading_recommendation']}")
-            except Exception as e:
-                print(f"Psychology analysis error for {sym}: {e}")
-        
-        # Check news impact and get trading guidance
+        # Check news impact and get trading guidance (skip in training mode)
         news_impact = None
-        if NEWS_IMPACT_ENABLED and articles_for_symbol:
+        if NEWS_IMPACT_ENABLED and articles_for_symbol and not training_mode:
             try:
                 from news_impact_predictor import get_news_impact_predictor
                 impact_predictor = get_news_impact_predictor()
@@ -2488,8 +2572,10 @@ async def main(backtest_only=False):
         if not plan:
             return None
         
-        # Apply psychology adjustments to trade plan
-        if psychology and psychology['irrationality_score'] > PSYCHOLOGY_IRRATIONALITY_THRESHOLD:
+        # Apply psychology adjustments to trade plan (SKIP in training mode)
+        # In training mode, we collect psychology data but don't use it for trade decisions
+        # This ensures pure technical trading for ML training
+        if not training_mode and psychology and psychology['irrationality_score'] > PSYCHOLOGY_IRRATIONALITY_THRESHOLD:
             # Market is irrational - adjust strategy
             if psychology['trading_recommendation'] == 'contrarian':
                 # Extreme fear/greed - consider contrarian
@@ -2962,7 +3048,115 @@ async def get_market_data_async(yf_symbol, kind='forex', session=None):
 
 if __name__ == '__main__':
     import asyncio
-    if len(sys.argv) > 1 and sys.argv[1] == '--backtest':
+    import signal
+    
+    # Handle command line arguments
+    training_mode = False
+    backtest_only = False
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--backtest':
+            backtest_only = True
+        elif sys.argv[1] == '--training':
+            training_mode = True
+        elif sys.argv[1] == '--help':
+            print("Usage: python main.py [--backtest|--training|--help]")
+            print()
+            print("Options:")
+            print("  --backtest    Run in backtest-only mode")
+            print("  --training    Run in training mode (loop continuously, minimal news/AI)")
+            print("  --help        Show this help message")
+            print()
+            print("Training mode details:")
+            print("  - Focuses on technical analysis only")
+            print("  - Disables Telegram notifications")
+            print("  - Minimizes news and AI usage")
+            print("  - Keeps failure classification AI active")
+            print("  - Loops continuously until stopped (Ctrl+C)")
+            print("  - Checks trade results every {} seconds".format(TRAINING_CHECK_INTERVAL))
+            print("  - Auto-retrains ML after {} completed trades".format(TRAINING_RETRAIN_AFTER))
+            sys.exit(0)
+    
+    if training_mode:
+        # Training mode: loop continuously
+        print("Starting training mode loop...")
+        print("Press Ctrl+C to stop")
+        print()
+        
+        iteration = 0
+        training_start_time = datetime.now()
+        
+        # Signal handler for graceful shutdown
+        def signal_handler(sig, frame):
+            print("\n" + "="*70)
+            print("TRAINING MODE STOPPED")
+            print("="*70)
+            duration = datetime.now() - training_start_time
+            print(f"Training duration: {duration}")
+            print(f"Iterations completed: {iteration}")
+            
+            # Show final ML stats
+            if os.path.exists(TRADE_LOG_FILE):
+                with open(TRADE_LOG_FILE, 'r') as f:
+                    all_trades = json.load(f)
+                completed = [t for t in all_trades if t.get('status') in ['win', 'loss']]
+                wins = sum(1 for t in completed if t.get('status') == 'win')
+                print(f"Total trades logged: {len(all_trades)}")
+                print(f"Completed trades: {len(completed)}")
+                print(f"Win rate: {wins/len(completed):.2%}" if len(completed) > 0 else "Win rate: N/A")
+            
+            print("="*70)
+            sys.exit(0)
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        
+        # Training loop
+        while True:
+            iteration += 1
+            print("\n" + "="*70)
+            print(f"TRAINING ITERATION {iteration}")
+            print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print("="*70)
+            
+            try:
+                # Run main with training mode
+                results = asyncio.run(main(backtest_only=False, training_mode=True))
+                
+                # Check if we should retrain ML
+                if os.path.exists(TRADE_LOG_FILE):
+                    with open(TRADE_LOG_FILE, 'r') as f:
+                        all_trades = json.load(f)
+                    completed = [t for t in all_trades if t.get('status') in ['win', 'loss']]
+                    
+                    # Retrain after every TRAINING_RETRAIN_AFTER completed trades
+                    if len(completed) >= TRAINING_RETRAIN_AFTER and len(completed) % TRAINING_RETRAIN_AFTER == 0:
+                        print("\n" + "-"*70)
+                        print(f"RETRAINING ML MODEL ({len(completed)} completed trades)")
+                        print("-"*70)
+                        try:
+                            if ML_ENABLED and ML_AVAILABLE:
+                                ml_predictor = get_ml_predictor()
+                                if ml_predictor.train(TRADE_LOG_FILE):
+                                    print("✓ ML model retrained successfully")
+                                else:
+                                    print("⚠ ML retraining skipped (insufficient data)")
+                        except Exception as e:
+                            print(f"ML retraining error: {e}")
+                
+                print("\n" + "-"*70)
+                print(f"Iteration {iteration} complete. Waiting {TRAINING_CHECK_INTERVAL} seconds...")
+                print(f"Next check at: {(datetime.now() + timedelta(seconds=TRAINING_CHECK_INTERVAL)).strftime('%Y-%m-%d %H:%M:%S')}")
+                print("-"*70)
+                
+                # Sleep before next iteration
+                time.sleep(TRAINING_CHECK_INTERVAL)
+                
+            except Exception as e:
+                print(f"Error in training iteration {iteration}: {e}")
+                print("Continuing to next iteration...")
+                time.sleep(60)  # Wait a minute before retrying
+    
+    elif backtest_only:
         asyncio.run(main(backtest_only=True))
     else:
         asyncio.run(main())
