@@ -103,13 +103,11 @@ class MarketPsychologyAnalyzer:
             
             content = response.choices[0].message.content
             
-            # Validate content before parsing
-            if not content or not content.strip():
+            # Validate and strip content before parsing
+            content = content.strip() if content else ''
+            if not content:
                 logger.error("Groq returned empty content")
                 return self._neutral_response("Empty response from API")
-            
-            # Strip whitespace and validate
-            content = content.strip()
             
             # Try to parse JSON
             try:
