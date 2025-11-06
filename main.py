@@ -1501,7 +1501,7 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex', n
         bullish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
         bearish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
         if bullish_count >= 3:
-            expected_return = 0.01 * bullish_count / 14  # 0.7% for 10 signals, 1.0% for all 14
+            expected_return = 0.01 * bullish_count / 14  # ~0.21% for 3 signals, ~0.71% for 10, ~1.0% for all 14
         elif bearish_count >= 3:
             expected_return = -0.01 * bearish_count / 14
 
