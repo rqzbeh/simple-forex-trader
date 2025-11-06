@@ -32,17 +32,18 @@ Press `Ctrl+C` to stop the training loop.
 - **Trains on**: Technical trades with analytical failures
 - **Excludes**: Emotional and mixed failures
 - **Goal**: Learn better technical indicator usage
-- **Retrains**: After every new completed trade
+- **Retrains**: After every 10 new completed trades
 
 #### ML System 2: News Impact Predictor (`news_impact_predictor.py`)
-- **Excludes**: ALL training mode trades
-- **Reason**: Psychology data wasn't used for trade decisions, so can't train on it
-- **Goal**: Learn how news/psychology impacts trades in normal mode
+- **Trains on**: ALL trades (both training and normal mode)
+- **Uses**: Psychology features (irrationality, fear/greed) to learn emotional patterns
+- **Goal**: Learn how news/psychology impacts trade outcomes
+- **Retrains**: After every 10 new completed trades
 
 ### 4. Continuous Operation
 - **Loop**: Runs indefinitely until manually stopped
 - **Check Interval**: Every 1800 seconds (30 minutes)
-- **Auto-Retrain**: After every 1 new completed trade
+- **Auto-Retrain**: After every 10 new completed trades
 
 ### 5. Reduced Overhead
 - **Telegram**: Disabled
@@ -240,8 +241,8 @@ if trade.get('excluded_from_training', False):
     skip_trade()  # Excludes emotional/mixed failures
 
 # ML System 2 (News Impact Predictor)  
-if trade.get('training_mode', False):
-    skip_trade()  # Excludes ALL training mode trades
+# Trains on ALL trades (training and normal mode)
+# Uses psychology features: irrationality_score, fear_greed_index
 ```
 
 ## See Also
