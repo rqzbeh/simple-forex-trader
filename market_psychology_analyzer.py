@@ -291,4 +291,6 @@ def analyze_market_psychology(news_articles: List[Dict],
         )
     except Exception as e:
         logger.error(f"Psychology analysis error: {e}")
-        return MarketPsychologyAnalyzer(model='llama-3.3-70b-versatile')._neutral_response(str(e))
+        # Use LLM_MODEL from environment, fallback to default if not set
+        fallback_model = os.getenv('LLM_MODEL') or 'llama-3.3-70b-versatile'
+        return MarketPsychologyAnalyzer(model=fallback_model)._neutral_response(str(e))
