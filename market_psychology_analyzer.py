@@ -248,12 +248,20 @@ Return ONLY valid JSON, no additional text."""
 _psychology_analyzer = None
 
 
-def get_psychology_analyzer() -> MarketPsychologyAnalyzer:
-    """Get or create global psychology analyzer instance"""
+def get_psychology_analyzer(model: str = None) -> MarketPsychologyAnalyzer:
+    """
+    Get or create global psychology analyzer instance
+    
+    Args:
+        model: Model name (defaults to LLM_MODEL environment variable if not provided)
+    """
     global _psychology_analyzer
     if _psychology_analyzer is None:
         try:
-            _psychology_analyzer = MarketPsychologyAnalyzer()
+            # Use LLM_MODEL environment variable if model not explicitly provided
+            if model is None:
+                model = os.getenv('LLM_MODEL')
+            _psychology_analyzer = MarketPsychologyAnalyzer(model=model)
         except Exception as e:
             logger.error(f"Failed to initialize psychology analyzer: {e}")
             raise
@@ -283,4 +291,6 @@ def analyze_market_psychology(news_articles: List[Dict],
         )
     except Exception as e:
         logger.error(f"Psychology analysis error: {e}")
-        return MarketPsychologyAnalyzer(model='llama-3.3-70b-versatile')._neutral_response(str(e))
+        # Use LLM_MODEL from environment, fallback to default if not set
+        fallback_model = os.getenv('LLM_MODEL') or 'llama-3.3-70b-versatile'
+        return MarketPsychologyAnalyzer(model=fallback_model)._neutral_response(str(e))
