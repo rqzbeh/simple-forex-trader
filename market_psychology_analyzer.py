@@ -102,7 +102,22 @@ class MarketPsychologyAnalyzer:
             )
             
             content = response.choices[0].message.content
-            result = json.loads(content)
+            
+            # Validate content before parsing
+            if not content or not content.strip():
+                logger.error("Groq returned empty content")
+                return self._neutral_response("Empty response from API")
+            
+            # Strip whitespace and validate
+            content = content.strip()
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON from Groq: {e}")
+                logger.error(f"Content received: {content[:200]}...")  # Log first 200 chars
+                return self._neutral_response("JSON parse error")
             
             # Record usage
             if RATE_LIMITER_AVAILABLE:

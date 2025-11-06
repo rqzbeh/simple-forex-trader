@@ -286,7 +286,22 @@ Return ONLY valid JSON, no additional text."""
             )
             
             content = response.choices[0].message.content
-            result = json.loads(content)
+            
+            # Validate content before parsing
+            if not content or not content.strip():
+                logger.error("Groq returned empty content")
+                return self._default_result()
+            
+            # Strip whitespace and validate
+            content = content.strip()
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Groq returned invalid JSON: {e}")
+                logger.error(f"Content received: {content[:200]}...")  # Log first 200 chars
+                return self._default_result()
             
             # Record API usage
             if RATE_LIMITER_AVAILABLE:
