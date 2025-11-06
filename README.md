@@ -98,9 +98,9 @@ A Python-based trading signal generator that analyzes forex, commodities, and in
 - **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
 - **Telegram Notifications**: Sends trade signals via Telegram (optional)
-- **Adaptive Learning**: Evaluates past signals using real historical data and adjusts indicator weights for improved performance
+- **Adaptive Learning**: Evaluates past signals using real historical data and adjusts indicator weights for improved performance - **NO SIMULATED DATA**
 - **Low Money Mode**: Optimized settings for smaller trading accounts (< $500)
-- **Backtesting**: Automatic parameter validation on 90 days of historical data
+- **Parameter Auto-Tuning**: Continuous parameter adjustment based on real trade outcomes (no backtesting/simulation)
 - **ML Learning Without Broker**: Checks if previous signals hit TP/SL using historical price data, enabling ML to learn from real market movements
 
 ## Requirements
@@ -251,24 +251,21 @@ In training mode, psychology data is collected but NOT used to adjust trade deci
 
 **To stop training mode**: Press `Ctrl+C`
 
-### Backtest Mode (Quick Parameter Validation)
+### ~~Backtest Mode~~ (DEPRECATED - Removed)
 
-Backtesting simulates trades on 90 days of historical data to validate and auto-tune parameters. This is different from Training Mode:
+**Backtesting has been removed** as it used simulated data. We now use only real trade outcomes for all learning and parameter tuning.
 
-- **Backtest**: Fast validation (runs in minutes), simulates what WOULD have happened
-- **Training Mode**: Real trades over time (takes days/weeks), learns from what ACTUALLY happened
+All parameter optimization happens automatically via `evaluate_trades()` which uses real historical price data to determine actual trade outcomes.
 
-Run backtest-only mode:
+If you want to validate parameters:
+1. Use Training Mode to collect real trade data
+2. Let evaluate_trades() adjust parameters based on real performance
+3. Review trade_log.json to see actual win/loss results
 
-```bash
-python main.py --backtest
-```
-
-**Note:** Backtesting is still useful even with Training Mode because:
-1. Provides immediate feedback on parameter quality (don't wait weeks for training data)
-2. Tests parameters on diverse market conditions (90 days of data)
-3. Helps optimize parameters before running live/training mode
-4. Training mode is disabled during backtesting to focus solely on parameter validation
+**Why removed:**
+- Backtesting simulated trades (fake data)
+- Real trade evaluation via check_trade_outcomes() and evaluate_trades() provides better, actual results
+- No need for simulated validation when we can learn from real market movements
 
 ## Output
 

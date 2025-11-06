@@ -459,10 +459,10 @@ LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile
 PSYCHOLOGY_ANALYSIS_ENABLED = os.getenv('PSYCHOLOGY_ANALYSIS_ENABLED', 'true').lower() == 'true'
 PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_THRESHOLD', '0.6'))  # Adjust trades when irrationality > this
 
-# Backtesting configuration
-BACKTEST_ENABLED = True  # Enable automatic backtesting for parameter validation
-BACKTEST_PERIOD_DAYS = 90  # Increased to 90 days for more accurate historical validation
-BACKTEST_ADJUST_THRESHOLD = 0.55  # More realistic win rate threshold (55%) for adjustments
+# Backtesting configuration - DISABLED (we only use real trade data, no simulated/fake data)
+BACKTEST_ENABLED = False  # Disabled - we learn from real trades only, not simulated data
+BACKTEST_PERIOD_DAYS = 90  # Not used when BACKTEST_ENABLED = False
+BACKTEST_ADJUST_THRESHOLD = 0.55  # Not used when BACKTEST_ENABLED = False
 
 # Indicator weights (optimized based on backtesting and industry research)
 RSI_WEIGHT = 1.3  # RSI is highly reliable
@@ -1910,7 +1910,11 @@ def log_trades(results):
         json.dump(logs, f, indent=2)
 
 def evaluate_trades():
-    """Evaluate past trades and adjust indicator weights based on performance."""
+    """
+    Evaluate past trades and adjust indicator weights AND parameters based on real performance.
+    This function uses ONLY real trade outcomes - no simulated or fake data.
+    Called every run to continuously learn and improve from actual market results.
+    """
     global RSI_WEIGHT, MACD_WEIGHT, BB_WEIGHT, TREND_WEIGHT, ADVANCED_CANDLE_WEIGHT, OBV_WEIGHT, FVG_WEIGHT, VWAP_WEIGHT, STOCH_WEIGHT, CCI_WEIGHT, HURST_WEIGHT, ADX_WEIGHT, WILLIAMS_R_WEIGHT, SAR_WEIGHT
     if not os.path.exists(TRADE_LOG_FILE):
         return
@@ -2060,26 +2064,37 @@ def evaluate_trades():
                 print(f"{ind.replace('_', ' ').capitalize()} win rate: {ind_win_rate:.2%}, new weight: {globals()[f'{ind.upper()}_WEIGHT']:.2f}")
         
         # Adjust overall parameters if win rate < 45% AND sufficient sample size
+        # This uses REAL trade outcomes, not simulated data
         if win_rate < 0.45 and total >= 10:  # Require at least 10 trades for adjustments
-            global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT
-            MIN_STOP_PCT *= 0.95  # Less aggressive adjustment
-            print("Adjusted: slightly tighter stops due to low win rate.")
+            global EXPECTED_RETURN_PER_SENTIMENT, MIN_STOP_PCT, MAX_LEVERAGE_FOREX
+            MIN_STOP_PCT *= 0.95  # Less aggressive adjustment based on real data
+            MAX_LEVERAGE_FOREX = max(50, MAX_LEVERAGE_FOREX * 0.95)  # Reduce leverage on poor real performance
+            print("Adjusted based on real trades: slightly tighter stops and lower leverage due to low win rate.")
         elif win_rate < 0.3 and total >= 5:  # Very low win rate even with smaller sample
             MIN_STOP_PCT *= 0.9
-            print("Adjusted: tighter stops due to very low win rate.")
+            MAX_LEVERAGE_FOREX = max(50, MAX_LEVERAGE_FOREX * 0.9)
+            print("Adjusted based on real trades: tighter stops and lower leverage due to very low win rate.")
         elif win_rate > 0.6 and total >= 10:  # Good performance - loosen stops slightly
             MIN_STOP_PCT *= 1.05
-            print("Adjusted: slightly looser stops due to good performance.")
+            MAX_LEVERAGE_FOREX = min(100, MAX_LEVERAGE_FOREX * 1.05)  # Can increase leverage on good real performance
+            print("Adjusted based on real trades: slightly looser stops and higher leverage due to good performance.")
         
         # Save back
         with open(TRADE_LOG_FILE, 'w') as f:
             json.dump(logs, f, indent=2)
 
 def backtest_parameters():
-    """Backtest current parameters on historical data and auto-adjust if needed."""
-    if not BACKTEST_ENABLED:
-        return
+    """
+    DEPRECATED - This function is no longer used.
+    We only use real trade data for parameter tuning, not simulated backtests.
     
+    Parameter tuning now happens in evaluate_trades() using actual trade outcomes.
+    This function remains for backwards compatibility but does nothing when BACKTEST_ENABLED=False.
+    """
+    if not BACKTEST_ENABLED:
+        return  # Disabled - we don't use simulated data
+    
+    print("WARNING: Backtesting is deprecated. Use real trade data via evaluate_trades() instead.")
     print(f"Running backtest on last {BACKTEST_PERIOD_DAYS} days of data...")
     
     # Always use real backtest data
@@ -2807,11 +2822,11 @@ async def main(backtest_only=False, training_mode=False):
     # sort by quality: rr then news_count
     results.sort(key=lambda r: (r['rr'], r['news_count']), reverse=True)
 
-    # Evaluate and learn every run
+    # Evaluate and learn every run using REAL trade data only
     evaluate_trades()
     
-    # Backtest and auto-validate parameters
-    backtest_parameters()
+    # REMOVED: backtest_parameters() - we don't use simulated data anymore
+    # All parameter tuning now happens in evaluate_trades() using real trade outcomes
     
     # Train/retrain ML model periodically
     if ML_ENABLED and ML_AVAILABLE:
