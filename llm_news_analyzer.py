@@ -313,9 +313,6 @@ Return ONLY valid JSON, no additional text."""
             # Validate and normalize result
             return self._normalize_result(result)
         
-        except json.JSONDecodeError as e:
-            logger.error(f"Groq returned invalid JSON: {e}")
-            return self._default_result()
         except Exception as e:
             logger.error(f"Groq API error: {e}")
             return self._default_result()

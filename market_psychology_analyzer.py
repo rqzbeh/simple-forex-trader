@@ -127,10 +127,6 @@ class MarketPsychologyAnalyzer:
             # Validate and normalize
             return self._normalize_psychology_result(result)
         
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON from Groq: {e}")
-            return self._neutral_response("JSON parse error")
-        
         except Exception as e:
             logger.error(f"Market psychology analysis error: {e}")
             return self._neutral_response(str(e))
