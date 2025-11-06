@@ -479,6 +479,9 @@ MARKET_SESSIONS = [
     ('New York', 13.5, 20),  # 13:30 to 20:00
 ]
 
+# Debug mode
+DEBUG = False  # Set to True for verbose logging
+
 # Debug symbols for logging
 DEBUG_SYMBOLS = ['EURUSD', 'GBPUSD', 'GC=F']
 
@@ -1710,6 +1713,120 @@ def _symbol_has_prices(yf_symbol: str) -> bool:
     except Exception:
         return False
 
+def check_trade_outcomes():
+    """
+    Check if past 'open' trades hit their stop loss or take profit using real historical data.
+    This allows ML to learn from real market movements without broker API or simulation.
+    Called each time the script runs to update trade statuses based on what actually happened.
+    """
+    if not os.path.exists(TRADE_LOG_FILE):
+        return
+    
+    with open(TRADE_LOG_FILE, 'r') as f:
+        logs = json.load(f)
+    
+    updated_count = 0
+    
+    for trade in logs:
+        # Only check trades that are still open
+        if trade.get('status') != 'open':
+            continue
+        
+        # Get trade details
+        symbol = trade['symbol']
+        entry_time = trade.get('timestamp')
+        if not entry_time:
+            continue
+        
+        try:
+            entry_dt = datetime.fromisoformat(entry_time)
+        except:
+            continue
+        
+        # Only check trades older than 1 hour
+        if datetime.now() - entry_dt < timedelta(hours=1):
+            continue
+        
+        yf_symbol = FOREX_SYMBOL_MAP.get(symbol, symbol + '=X')
+        
+        try:
+            # Get historical data from entry time until now
+            ticker = yf.Ticker(yf_symbol)
+            # Get enough data to cover the period since trade entry
+            days_since = (datetime.now() - entry_dt).days + 1
+            hist = ticker.history(period=f'{min(days_since, 30)}d', interval='1h')
+            
+            if hist.empty or len(hist) < 2:
+                continue
+            
+            entry_price = trade['entry_price']
+            stop_price = trade['stop_price']
+            target_price = trade['target_price']
+            direction = trade['direction']
+            
+            # Check each hour's price to see if stop or target was hit
+            for idx in range(len(hist)):
+                candle_time = hist.index[idx]
+                
+                # Only check candles after the entry time
+                if candle_time.tz_localize(None) <= entry_dt:
+                    continue
+                
+                high = hist['High'].iloc[idx]
+                low = hist['Low'].iloc[idx]
+                close = hist['Close'].iloc[idx]
+                
+                if direction == 'long':
+                    # Check if stop hit first (price went below stop)
+                    if low <= stop_price:
+                        trade['status'] = 'loss'
+                        trade['exit_price'] = stop_price
+                        trade['exit_time'] = candle_time.isoformat()
+                        updated_count += 1
+                        break
+                    # Check if target hit (price went above target)
+                    elif high >= target_price:
+                        trade['status'] = 'win'
+                        trade['exit_price'] = target_price
+                        trade['exit_time'] = candle_time.isoformat()
+                        updated_count += 1
+                        break
+                
+                elif direction == 'short':
+                    # Check if stop hit first (price went above stop)
+                    if high >= stop_price:
+                        trade['status'] = 'loss'
+                        trade['exit_price'] = stop_price
+                        trade['exit_time'] = candle_time.isoformat()
+                        updated_count += 1
+                        break
+                    # Check if target hit (price went below target)
+                    elif low <= target_price:
+                        trade['status'] = 'win'
+                        trade['exit_price'] = target_price
+                        trade['exit_time'] = candle_time.isoformat()
+                        updated_count += 1
+                        break
+        
+        except Exception as e:
+            # Silently skip trades we can't check (likely network issues)
+            continue
+    
+    # Save updated trades
+    if updated_count > 0:
+        with open(TRADE_LOG_FILE, 'w') as f:
+            json.dump(logs, f, indent=2)
+        
+        # Count wins and losses
+        completed = [t for t in logs if t.get('status') in ['win', 'loss']]
+        wins = sum(1 for t in completed if t.get('status') == 'win')
+        losses = sum(1 for t in completed if t.get('status') == 'loss')
+        
+        print(f"Updated {updated_count} trade(s) based on real historical data")
+        print(f"  Total completed: {len(completed)} (wins: {wins}, losses: {losses})")
+        if len(completed) >= 50:
+            print(f"  ✓ Sufficient data for ML training!")
+
 def log_trades(results):
     """Log suggested trades to JSON file with indicator signals."""
     if not os.path.exists(TRADE_LOG_FILE):
@@ -1761,6 +1878,7 @@ def log_trades(results):
             'atr_pct': r.get('atr_pct', 0),
             'psychology': r.get('psychology')
         }
+        
         logs.append(trade)
         
         # Record with AI performance tracker if psychology was used
@@ -2240,6 +2358,10 @@ def print_current_parameters():
     print("====================================")
 
 async def main(backtest_only=False):
+    # First, check if any previous trades hit their stop/target using real historical data
+    print("Checking previous trades against real historical data...")
+    check_trade_outcomes()
+    
     if not backtest_only:
         current_session = get_current_market_session()
         print(f"Current market session: {current_session}")
