@@ -862,86 +862,52 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
 
 @lru_cache(maxsize=100)
 def _get_alpha_vantage_data(yf_symbol):
-    """Get forex data from Alpha Vantage."""
-    if not ALPHA_VANTAGE_API_KEY:
-        return None
-    try:
-        fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
-        # Assume yf_symbol like 'EURUSD=X', extract 'EUR' and 'USD'
-        from_currency = yf_symbol[:3]
-        to_currency = yf_symbol[3:6]
-        data, _ = fx.get_currency_exchange_rate(from_currency=from_currency, to_currency=to_currency)
-        current_price = float(data['5. Exchange Rate'])
-        # Alpha Vantage doesn't provide historical data easily, so basic price only
-        # For indicators, we'd need intraday, but free tier limits
-        # Return minimal data
-        return {
-            'price': current_price,
-            'volatility_hourly': 0.01,  # Placeholder
-            'atr_pct': 0.005,  # Placeholder
-            'pivot': current_price,  # Placeholder
-            'r1': current_price * 1.01, 'r2': current_price * 1.02,
-            's1': current_price * 0.99, 's2': current_price * 0.98,
-            'support': current_price * 0.98,
-            'resistance': current_price * 1.02,
-            'psych_level': round(current_price),
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0,
-            'hurst_signal': 0,
-            'adx_signal': 0,
-            'williams_r_signal': 0,
-            'sar_signal': 0
-        }
-    except Exception as e:
-        print(f'Alpha Vantage fetch error for {yf_symbol}: {e}')
-        return None
+    """
+    Get forex data from Alpha Vantage.
+    
+    DISABLED: Alpha Vantage free tier doesn't provide historical intraday data needed for indicators.
+    Without real indicator calculations, we would return placeholder/fake values.
+    We only use real data, so this provider is disabled.
+    """
+    return None  # Disabled - can't get real indicator data without paid Alpha Vantage plan
+    
+    # Original code commented out (returns placeholder values):
+    # if not ALPHA_VANTAGE_API_KEY:
+    #     return None
+    # try:
+    #     fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
+    #     from_currency = yf_symbol[:3]
+    #     to_currency = yf_symbol[3:6]
+    #     data, _ = fx.get_currency_exchange_rate(from_currency=from_currency, to_currency=to_currency)
+    #     current_price = float(data['5. Exchange Rate'])
+    #     # Problem: Returns placeholder values for volatility, ATR, indicators
+    #     # We don't use fake data, so we return None instead
+    # except Exception as e:
+    #     print(f'Alpha Vantage fetch error for {yf_symbol}: {e}')
+    #     return None
 @lru_cache(maxsize=100)
 def _get_iex_data(yf_symbol):
-    """Get stock data from IEX Cloud."""
-    if not IEX_API_TOKEN:
-        return None
-    try:
-        stock = Stock(yf_symbol.replace('=X', ''), token=IEX_API_TOKEN)
-        quote = stock.get_quote()
-        current_price = quote['latestPrice']
-        # IEX provides quote, but for historical, need chart
-        # Placeholder for now
-        return {
-            'price': current_price,
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': current_price,
-            'r1': current_price * 1.01, 'r2': current_price * 1.02,
-            's1': current_price * 0.99, 's2': current_price * 0.98,
-            'support': current_price * 0.98,
-            'resistance': current_price * 1.02,
-            'psych_level': round(current_price),
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0,
-            'hurst_signal': 0,
-            'adx_signal': 0,
-            'williams_r_signal': 0,
-            'sar_signal': 0
-        }
-    except Exception as e:
-        print(f'IEX Cloud fetch error for {yf_symbol}: {e}')
-        return None
+    """
+    Get stock data from IEX Cloud.
+    
+    DISABLED: IEX Cloud doesn't provide historical intraday data in free tier for indicator calculations.
+    Without real indicator calculations, we would return placeholder/fake values.
+    We only use real data, so this provider is disabled.
+    """
+    return None  # Disabled - can't get real indicator data without IEX Cloud paid plan
+    
+    # Original code commented out (returns placeholder values):
+    # if not IEX_API_TOKEN:
+    #     return None
+    # try:
+    #     stock = Stock(yf_symbol.replace('=X', ''), token=IEX_API_TOKEN)
+    #     quote = stock.get_quote()
+    #     current_price = quote['latestPrice']
+    #     # Problem: Returns placeholder values for volatility, ATR, indicators
+    #     # We don't use fake data, so we return None instead
+    # except Exception as e:
+    #     print(f'IEX Cloud fetch error for {yf_symbol}: {e}')
+    #     return None
 
 
 @lru_cache(maxsize=100)
@@ -1238,75 +1204,56 @@ def _get_twelvedata_data(yf_symbol):
 
 @lru_cache(maxsize=100)
 def _get_fmp_data(yf_symbol):
-    """Get data from FinancialModelingPrep (minimal)."""
-    if not FMP_API_KEY:
-        return None
-    try:
-        sym = yf_symbol.replace('=X', '')
-        quote = _fmp_client.get_quote(sym)
-        if not quote or (isinstance(quote, list) and len(quote) == 0) or quote == 0:
-            print(f'FMP no quote for {yf_symbol}')
-            return None
-        price = float(quote[0].get('price', 0))
-        return {
-            'price': price,
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': price,
-            'r1': price * 1.01, 'r2': price * 1.02,
-            's1': price * 0.99, 's2': price * 0.98,
-            'support': price * 0.98,
-            'resistance': price * 1.02,
-            'psych_level': round(price * 100) / 100,
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0
-        }
-    except Exception as e:
-        print(f'FMP fetch error for {yf_symbol}: {e}')
-        return None
+    """
+    Get data from FinancialModelingPrep (minimal).
+    
+    DISABLED: FMP doesn't provide historical intraday data needed for indicator calculations.
+    Without real indicator calculations, we would return placeholder/fake values.
+    We only use real data, so this provider is disabled.
+    """
+    return None  # Disabled - returns placeholder values for indicators
+    
+    # Original code commented out (returns placeholder values):
+    # if not FMP_API_KEY:
+    #     return None
+    # try:
+    #     sym = yf_symbol.replace('=X', '')
+    #     quote = _fmp_client.get_quote(sym)
+    #     if not quote or (isinstance(quote, list) and len(quote) == 0) or quote == 0:
+    #         print(f'FMP no quote for {yf_symbol}')
+    #         return None
+    #     price = float(quote[0].get('price', 0))
+    #     # Problem: Returns placeholder values for volatility, ATR, indicators
+    #     # We don't use fake data, so we return None instead
+    # except Exception as e:
+    #     print(f'FMP fetch error for {yf_symbol}: {e}')
+    #     return None
 
 
 @lru_cache(maxsize=100)
 def _get_quandl_data(yf_symbol):
-    """Get data from Quandl (minimal)."""
-    if not QUANDL_API_KEY:
-        return None
-    try:
-        # Placeholder implementation - Quandl requires specific dataset codes
-        # For demo, return basic data
-        print(f'Quandl placeholder for {yf_symbol}')
-        return {
-            'price': 100.0,  # Placeholder
-            'volatility_hourly': 0.01,
-            'atr_pct': 0.005,
-            'pivot': 100.0,
-            'r1': 101.0, 'r2': 102.0,
-            's1': 99.0, 's2': 98.0,
-            'support': 98.0,
-            'resistance': 102.0,
-            'psych_level': 100.0,
-            'rsi_signal': 0,
-            'macd_signal': 0,
-            'bb_signal': 0,
-            'trend_signal': 0,
-            'advanced_candle_signal': 0,
-            'obv_signal': 0,
-            'fvg_signal': 0,
-            'vwap_signal': 0,
-            'stoch_signal': 0,
-            'cci_signal': 0
-        }
-    except Exception as e:
-        print(f'Quandl fetch error for {yf_symbol}: {e}')
-        return None
+    """
+    Get data from Quandl.
+    
+    DISABLED: Quandl requires specific dataset codes and doesn't provide real-time FX data.
+    This was just a placeholder implementation returning fake data.
+    We only use real data, so this provider is disabled.
+    """
+    return None  # Disabled - was returning completely fake placeholder data
+    
+    # Original code was just a placeholder returning fake data:
+    # if not QUANDL_API_KEY:
+    #     return None
+    # try:
+    #     print(f'Quandl placeholder for {yf_symbol}')
+    #     return {
+    #         'price': 100.0,  # FAKE placeholder
+    #         'volatility_hourly': 0.01,  # FAKE
+    #         ...all fake data...
+    #     }
+    # except Exception as e:
+    #     print(f'Quandl fetch error for {yf_symbol}: {e}')
+    #     return None
 
 
 @lru_cache(maxsize=100)
