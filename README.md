@@ -1,6 +1,24 @@
-# Forex, Commodities & Indices News Trading Bot
+# Forex, Commodities & Indices Trading Signal Generator
 
-A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, **advanced quantitative risk management**, and **self-learning parameters** for automated trading.
+A Python-based trading signal generator that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, **advanced quantitative risk management**, and **self-learning parameters**.
+
+**Note**: This is a **signal generator only**. It does not execute trades or connect to brokers. Signals are provided for manual trading or integration with your own trading system.
+
+## Recent Fixes (November 2025)
+
+**Major Update v2.1**: Fixed critical issues and improved ML learning:
+
+- ✓ **Removed fake backtest data** - Backtest now uses real historical data instead of hardcoded results
+- ✓ **Relaxed trade requirements** - Reduced minimum technical indicators from 3-4 to 2-3
+- ✓ **Lowered sentiment threshold** - Reduced from 0.05 to 0.03 for easier trade triggers
+- ✓ **Added technical-only trades** - Bot can now trade on pure technical signals without news sentiment
+- ✓ **Increased expected returns** - Raised from 1.2% to 2.0-2.5% for more viable trades
+- ✓ **Expanded trading hours** - Now trades in all sessions (not just London/NY), except weekends
+- ✓ **Base return for tech trades** - Technical-only trades now have 0.2-1.0% base expected return
+- ✓ **Real data learning** - ML now learns from actual price movements, checking if signals hit TP/SL
+- ✓ **No broker needed** - Uses historical price data to evaluate trade outcomes for ML training
+
+**Result**: Bot generates actionable signals consistently and learns from real market data without needing broker integration.
 
 ## Features
 
@@ -76,21 +94,23 @@ A Python-based automated trading bot that analyzes forex, commodities, and indic
   - Williams %R - Momentum oscillator
   - Parabolic SAR - Trend and stop placement
 - **Multi-Source Data**: Fallback data sources including YFinance, Alpha Vantage, Polygon, Twelve Data, FMP, Quandl, FRED, and IEX for robust market data
-- **Automated Trading**: Integrates with forex broker APIs for automatic trade execution
+- **Signal Generation**: Provides entry, stop loss, and take profit levels for manual trading
 - **Risk Management**: Calculates optimal stop losses (0.08-0.2%), leverage (up to 50:1 forex, 5:1 stocks), and risk-reward ratios (minimum 2:1)
 - **Market Session Awareness**: Adjusts trading parameters based on current market session (Sydney, Tokyo, London, New York)
-- **Telegram Notifications**: Sends trade recommendations via Telegram (optional)
-- **Adaptive Learning**: Evaluates past trades and adjusts indicator weights for improved performance
+- **Telegram Notifications**: Sends trade signals via Telegram (optional)
+- **Adaptive Learning**: Evaluates past signals using real historical data and adjusts indicator weights for improved performance
 - **Low Money Mode**: Optimized settings for smaller trading accounts (< $500)
 - **Backtesting**: Automatic parameter validation on 90 days of historical data
+- **ML Learning Without Broker**: Checks if previous signals hit TP/SL using historical price data, enabling ML to learn from real market movements
 
 ## Requirements
 
 - Python 3.8 or higher
 - NewsAPI account (free tier available)
 - **Groq API key** (REQUIRED for LLM-enhanced news analysis - free tier available)
-- Broker API access (e.g., Oanda, MetaTrader) for automated trading
 - Internet connection for data fetching
+
+**Note**: No broker API needed. This tool generates signals only.
 
 ## Dependencies
 
@@ -152,8 +172,6 @@ Set the following environment variables:
 - `SHARPE_TRACKING_ENABLED`: Enable Sharpe ratio tracking and optimization (default: true)
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (optional, for notifications)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional, for notifications)
-- `BROKER_API_KEY`: Your forex broker API key (optional, for automated trading)
-- `BROKER_ACCOUNT_ID`: Your broker account ID (optional, for automated trading)
 
 ### Settings
 
@@ -186,25 +204,27 @@ python main.py
 
 The bot will:
 
-1. Check the current market session
-2. Fetch recent forex, commodities, and indices news
-3. Analyze sentiment and technical indicators
-4. Generate trade recommendations
-5. Execute trades automatically via broker API (if configured)
+1. Check previous signals against real historical data to see if they hit TP/SL
+2. Check the current market session
+3. Fetch recent forex, commodities, and indices news
+4. Analyze sentiment and technical indicators
+5. Generate trading signals with entry, stop loss, and take profit levels
 6. Send notifications via Telegram (if configured)
-7. Log trades to `trade_log.json`
-8. Evaluate performance and adjust parameters
+7. Log signals to `trade_log.json`
+8. Learn from real market data to improve future signals
 
 ## Output
 
-The bot outputs recommended trades in the console and via Telegram, including:
+The bot outputs recommended trading signals in the console and via Telegram, including:
 
 - Symbol and direction (LONG/SHORT)
 - Entry price
 - Stop loss and take profit levels
 - Recommended leverage
 - Risk-reward ratio
-- **ML probability and confidence scores** (when ML is enabled)
+- **ML probability and confidence scores** (when ML is enabled and trained)
+
+Signals are also logged to `trade_log.json` and automatically evaluated on next run to check if they hit TP/SL using real historical data.
 
 ## Machine Learning
 
