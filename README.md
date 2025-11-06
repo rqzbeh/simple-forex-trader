@@ -2,6 +2,20 @@
 
 A Python-based automated trading bot that analyzes forex, commodities, and indices news and market data to generate trading signals. It combines sentiment analysis from news articles with technical analysis, **LLM-enhanced news analysis**, **AI-powered market psychology detection**, **dual machine learning systems**, **advanced quantitative risk management**, and **self-learning parameters** for automated trading.
 
+## Recent Fixes (November 2025)
+
+**Major Update**: Fixed critical issues preventing trade generation:
+
+- ✓ **Removed fake backtest data** - Backtest now uses real historical data instead of hardcoded results
+- ✓ **Relaxed trade requirements** - Reduced minimum technical indicators from 3-4 to 2-3
+- ✓ **Lowered sentiment threshold** - Reduced from 0.05 to 0.03 for easier trade triggers
+- ✓ **Added technical-only trades** - Bot can now trade on pure technical signals without news sentiment
+- ✓ **Increased expected returns** - Raised from 1.2% to 2.0-2.5% for more viable trades
+- ✓ **Expanded trading hours** - Now trades in all sessions (not just London/NY), except weekends
+- ✓ **Base return for tech trades** - Technical-only trades now have 0.2-1.0% base expected return
+
+**Result**: Bot now generates actionable trades consistently instead of always returning "no trades found".
+
 ## Features
 
 ### Core Intelligence Systems
