@@ -1494,6 +1494,16 @@ def calculate_trade_plan(avg_sentiment, news_count, market_data, kind='forex', n
     # sentiment-driven expected move
     news_bonus = min(MAX_NEWS_BONUS, NEWS_COUNT_BONUS * news_count)
     expected_return = avg_sentiment * EXPECTED_RETURN_PER_SENTIMENT + news_bonus * (1 if avg_sentiment >= 0 else -1)
+    
+    # For technical-only trades (no sentiment), add base expected return based on signal strength
+    if abs(avg_sentiment) < 0.01 and news_count == 0:
+        # Count agreeing signals to determine base return
+        bullish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
+        bearish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
+        if bullish_count >= 3:
+            expected_return = 0.01 * bullish_count / 14  # 0.7% for 10 signals, 1.0% for all 14
+        elif bearish_count >= 3:
+            expected_return = -0.01 * bearish_count / 14
 
     # Adjust for technical levels
     # Near resistance: reduce bullish
@@ -1923,258 +1933,258 @@ def backtest_parameters():
     
     # Always use real backtest data
     backtest_results = {'total_trades': 0, 'wins': 0, 'losses': 0, 'total_return': 0.0}
-        
-        # Test on expanded symbols for more accurate validation
-        test_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'GC=F', 'CL=F', 'ZW=F', 'ZC=F']
-        
-        for sym in test_symbols:
-            yf_symbol = FOREX_SYMBOL_MAP.get(sym, sym)
-            if sym in ['GC=F', 'CL=F', 'ZW=F', 'ZC=F']:
-                yf_symbol = sym  # Commodities already have correct format
-            try:
-                # Get historical hourly data
-                hist = yf.Ticker(yf_symbol).history(period=f'{BACKTEST_PERIOD_DAYS}d', interval='1h')
-                if hist.empty or len(hist) < 24:  # Need at least 1 day
+    
+    # Test on expanded symbols for more accurate validation
+    test_symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'GC=F', 'CL=F', 'ZW=F', 'ZC=F']
+    
+    for sym in test_symbols:
+        yf_symbol = FOREX_SYMBOL_MAP.get(sym, sym)
+        if sym in ['GC=F', 'CL=F', 'ZW=F', 'ZC=F']:
+            yf_symbol = sym  # Commodities already have correct format
+        try:
+            # Get historical hourly data
+            hist = yf.Ticker(yf_symbol).history(period=f'{BACKTEST_PERIOD_DAYS}d', interval='1h')
+            if hist.empty or len(hist) < 24:  # Need at least 1 day
+                continue
+            
+            # Simulate trades on each hour
+            for i in range(24, len(hist)):  # Start from 24th hour to have enough data
+                # Mock market data for the hour
+                recent_data = hist.iloc[i-24:i]  # Last 24 hours
+                current_price = hist.iloc[i]['Close']
+                
+                # Calculate ATR and other metrics (simplified)
+                high = recent_data['High']
+                low = recent_data['Low']
+                close = recent_data['Close']
+                atr = (high - low).rolling(14).mean().iloc[-1] if len(high) >= 14 else 0.001
+                atr_pct = atr / current_price
+                
+                # Calculate signals from recent data
+                close = recent_data['Close']
+                high = recent_data['High']
+                low = recent_data['Low']
+                volume = recent_data['Volume']
+                
+                # RSI
+                if len(close) >= 14:
+                    delta = close.diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    rsi_val = rsi.iloc[-1]
+                    rsi_signal = 1 if rsi_val < 30 else -1 if rsi_val > 70 else 0
+                else:
+                    rsi_signal = 0
+                
+                # MACD
+                if len(close) >= 26:
+                    ema12 = close.ewm(span=12).mean()
+                    ema26 = close.ewm(span=26).mean()
+                    macd_line = ema12 - ema26
+                    signal_line = macd_line.ewm(span=9).mean()
+                    macd_signal = 1 if macd_line.iloc[-1] > signal_line.iloc[-1] else -1
+                else:
+                    macd_signal = 0
+                
+                # BB
+                if len(close) >= 20:
+                    sma20 = close.rolling(window=20).mean()
+                    std20 = close.rolling(window=20).std()
+                    upper_bb = sma20 + 2 * std20
+                    lower_bb = sma20 - 2 * std20
+                    bb_signal = 1 if close.iloc[-1] < lower_bb.iloc[-1] else -1 if close.iloc[-1] > upper_bb.iloc[-1] else 0
+                else:
+                    bb_signal = 0
+                
+                # Trend
+                if len(close) >= 200:
+                    ema50 = close.ewm(span=50).mean()
+                    ema200 = close.ewm(span=200).mean()
+                    trend_signal = 1 if ema50.iloc[-1] > ema200.iloc[-1] else -1
+                else:
+                    trend_signal = 0
+                
+                # Advanced candle
+                advanced_candle_signal = 0
+                if len(close) >= 2:
+                    prev_high = high.iloc[-2]
+                    prev_low = low.iloc[-2]
+                    prev_open = recent_data['Open'].iloc[-2]
+                    prev_close = close.iloc[-2]
+                    curr_high = high.iloc[-1]
+                    curr_low = low.iloc[-1]
+                    curr_open = recent_data['Open'].iloc[-1]
+                    curr_close = close.iloc[-1]
+                    # Bullish engulfing
+                    if prev_close < prev_open and curr_close > curr_open and curr_close >= prev_open and curr_open <= prev_close:
+                        advanced_candle_signal = 1
+                    # Bearish engulfing
+                    elif prev_close > prev_open and curr_close < curr_open and curr_close <= prev_open and curr_open >= prev_close:
+                        advanced_candle_signal = -1
+                
+                # OBV
+                if len(volume) >= 2:
+                    obv = [0]
+                    for i in range(1, len(close)):
+                        if close.iloc[i] > close.iloc[i-1]:
+                            obv.append(obv[-1] + volume.iloc[i])
+                        elif close.iloc[i] < close.iloc[i-1]:
+                            obv.append(obv[-1] - volume.iloc[i])
+                        else:
+                            obv.append(obv[-1])
+                    obv_signal = 1 if obv[-1] > obv[-2] else -1
+                else:
+                    obv_signal = 0
+                
+                # FVG
+                fvg_signal = 0
+                if len(close) >= 10:
+                    for i in range(-10, -1):
+                        if low.iloc[i] > high.iloc[i+2]:
+                            fvg_signal = 1
+                            break
+                        elif high.iloc[i] < low.iloc[i+2]:
+                            fvg_signal = -1
+                            break
+                
+                # VWAP
+                if len(close) >= 2 and volume.sum() > 0:
+                    vwap = (close * volume).cumsum() / volume.cumsum()
+                    vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
+                else:
+                    vwap_signal = 0
+                
+                # Stochastic Oscillator
+                if len(close) >= 14:
+                    lowest_low = low.rolling(window=14).min()
+                    highest_high = high.rolling(window=14).max()
+                    stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+                    stoch_d = stoch_k.rolling(window=3).mean()
+                    stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
+                else:
+                    stoch_signal = 0
+                
+                # CCI
+                if len(close) >= 20:
+                    typical_price = (high + low + close) / 3
+                    sma_tp = typical_price.rolling(window=20).mean()
+                    mean_dev = typical_price.rolling(window=20).apply(lambda x: abs(x - x.mean()).mean())
+                    cci = (typical_price - sma_tp) / (0.015 * mean_dev)
+                    cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
+                else:
+                    cci_signal = 0
+                
+                # Hurst Exponent
+                if len(close) >= 40:
+                    hurst = calculate_hurst_exponent(close, max_lag=20)
+                    hurst_signal = 1 if hurst > 0.6 else -1 if hurst < 0.4 else 0
+                else:
+                    hurst_signal = 0
+                
+                # ADX
+                if len(close) >= 30:
+                    adx_value = calculate_adx(high, low, close, period=14)
+                    adx_signal = 1 if adx_value > 25 else -1 if adx_value < 20 else 0
+                else:
+                    adx_signal = 0
+                
+                # Williams %R
+                if len(close) >= 14:
+                    williams_r = calculate_williams_r(high, low, close, period=14)
+                    williams_r_signal = 1 if williams_r < -80 else -1 if williams_r > -20 else 0
+                else:
+                    williams_r_signal = 0
+                
+                # Parabolic SAR
+                if len(close) >= 2:
+                    sar = calculate_parabolic_sar(high, low, close)
+                    sar_signal = 1 if close.iloc[-1] > sar else -1
+                else:
+                    sar_signal = 0
+                
+                # Get trade plan
+                market_data = {
+                    'price': current_price,
+                    'volatility_hourly': atr_pct,
+                    'atr_pct': atr_pct,
+                    'pivot': (high.max() + low.min() + close.iloc[-1]) / 3,
+                    'r1': ((high.max() + low.min() + close.iloc[-1]) / 3) + atr,
+                    'r2': ((high.max() + low.min() + close.iloc[-1]) / 3) + 2*atr,
+                    's1': ((high.max() + low.min() + close.iloc[-1]) / 3) - atr,
+                    's2': ((high.max() + low.min() + close.iloc[-1]) / 3) - 2*atr,
+                    'support': low.min(),
+                    'resistance': high.max(),
+                    'psych_level': round(current_price * 100) / 100,
+                    'rsi_signal': rsi_signal,
+                    'macd_signal': macd_signal,
+                    'bb_signal': bb_signal,
+                    'trend_signal': trend_signal,
+                    'advanced_candle_signal': advanced_candle_signal,
+                    'obv_signal': obv_signal,
+                    'fvg_signal': fvg_signal,
+                    'vwap_signal': vwap_signal,
+                    'stoch_signal': stoch_signal,
+                    'cci_signal': cci_signal,
+                    'hurst_signal': hurst_signal,
+                    'adx_signal': adx_signal,
+                    'williams_r_signal': williams_r_signal,
+                    'sar_signal': sar_signal
+                }
+                
+                # For backtest, use neutral sentiment to test technicals
+                avg_sent = 0.0
+                news_count = 0
+                
+                # But to allow trades, set small sentiment based on signals
+                bullish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
+                bearish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
+                if bullish_count >= 3:
+                    avg_sent = 0.1
+                elif bearish_count >= 3:
+                    avg_sent = -0.1
+                
+                plan = calculate_trade_plan(avg_sent, news_count, market_data, kind='forex')
+                if not plan or plan['direction'] == 'flat':
                     continue
                 
-                # Simulate trades on each hour
-                for i in range(24, len(hist)):  # Start from 24th hour to have enough data
-                    # Mock market data for the hour
-                    recent_data = hist.iloc[i-24:i]  # Last 24 hours
-                    current_price = hist.iloc[i]['Close']
-                    
-                    # Calculate ATR and other metrics (simplified)
-                    high = recent_data['High']
-                    low = recent_data['Low']
-                    close = recent_data['Close']
-                    atr = (high - low).rolling(14).mean().iloc[-1] if len(high) >= 14 else 0.001
-                    atr_pct = atr / current_price
-                    
-                    # Calculate signals from recent data
-                    close = recent_data['Close']
-                    high = recent_data['High']
-                    low = recent_data['Low']
-                    volume = recent_data['Volume']
-                    
-                    # RSI
-                    if len(close) >= 14:
-                        delta = close.diff()
-                        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                        rs = gain / loss
-                        rsi = 100 - (100 / (1 + rs))
-                        rsi_val = rsi.iloc[-1]
-                        rsi_signal = 1 if rsi_val < 30 else -1 if rsi_val > 70 else 0
-                    else:
-                        rsi_signal = 0
-                    
-                    # MACD
-                    if len(close) >= 26:
-                        ema12 = close.ewm(span=12).mean()
-                        ema26 = close.ewm(span=26).mean()
-                        macd_line = ema12 - ema26
-                        signal_line = macd_line.ewm(span=9).mean()
-                        macd_signal = 1 if macd_line.iloc[-1] > signal_line.iloc[-1] else -1
-                    else:
-                        macd_signal = 0
-                    
-                    # BB
-                    if len(close) >= 20:
-                        sma20 = close.rolling(window=20).mean()
-                        std20 = close.rolling(window=20).std()
-                        upper_bb = sma20 + 2 * std20
-                        lower_bb = sma20 - 2 * std20
-                        bb_signal = 1 if close.iloc[-1] < lower_bb.iloc[-1] else -1 if close.iloc[-1] > upper_bb.iloc[-1] else 0
-                    else:
-                        bb_signal = 0
-                    
-                    # Trend
-                    if len(close) >= 200:
-                        ema50 = close.ewm(span=50).mean()
-                        ema200 = close.ewm(span=200).mean()
-                        trend_signal = 1 if ema50.iloc[-1] > ema200.iloc[-1] else -1
-                    else:
-                        trend_signal = 0
-                    
-                    # Advanced candle
-                    advanced_candle_signal = 0
-                    if len(close) >= 2:
-                        prev_high = high.iloc[-2]
-                        prev_low = low.iloc[-2]
-                        prev_open = recent_data['Open'].iloc[-2]
-                        prev_close = close.iloc[-2]
-                        curr_high = high.iloc[-1]
-                        curr_low = low.iloc[-1]
-                        curr_open = recent_data['Open'].iloc[-1]
-                        curr_close = close.iloc[-1]
-                        # Bullish engulfing
-                        if prev_close < prev_open and curr_close > curr_open and curr_close >= prev_open and curr_open <= prev_close:
-                            advanced_candle_signal = 1
-                        # Bearish engulfing
-                        elif prev_close > prev_open and curr_close < curr_open and curr_close <= prev_open and curr_open >= prev_close:
-                            advanced_candle_signal = -1
-                    
-                    # OBV
-                    if len(volume) >= 2:
-                        obv = [0]
-                        for i in range(1, len(close)):
-                            if close.iloc[i] > close.iloc[i-1]:
-                                obv.append(obv[-1] + volume.iloc[i])
-                            elif close.iloc[i] < close.iloc[i-1]:
-                                obv.append(obv[-1] - volume.iloc[i])
-                            else:
-                                obv.append(obv[-1])
-                        obv_signal = 1 if obv[-1] > obv[-2] else -1
-                    else:
-                        obv_signal = 0
-                    
-                    # FVG
-                    fvg_signal = 0
-                    if len(close) >= 10:
-                        for i in range(-10, -1):
-                            if low.iloc[i] > high.iloc[i+2]:
-                                fvg_signal = 1
-                                break
-                            elif high.iloc[i] < low.iloc[i+2]:
-                                fvg_signal = -1
-                                break
-                    
-                    # VWAP
-                    if len(close) >= 2 and volume.sum() > 0:
-                        vwap = (close * volume).cumsum() / volume.cumsum()
-                        vwap_signal = 1 if close.iloc[-1] > vwap.iloc[-1] else -1
-                    else:
-                        vwap_signal = 0
-                    
-                    # Stochastic Oscillator
-                    if len(close) >= 14:
-                        lowest_low = low.rolling(window=14).min()
-                        highest_high = high.rolling(window=14).max()
-                        stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
-                        stoch_d = stoch_k.rolling(window=3).mean()
-                        stoch_signal = 1 if stoch_k.iloc[-1] < 20 else -1 if stoch_k.iloc[-1] > 80 else 0
-                    else:
-                        stoch_signal = 0
-                    
-                    # CCI
-                    if len(close) >= 20:
-                        typical_price = (high + low + close) / 3
-                        sma_tp = typical_price.rolling(window=20).mean()
-                        mean_dev = typical_price.rolling(window=20).apply(lambda x: abs(x - x.mean()).mean())
-                        cci = (typical_price - sma_tp) / (0.015 * mean_dev)
-                        cci_signal = 1 if cci.iloc[-1] < -100 else -1 if cci.iloc[-1] > 100 else 0
-                    else:
-                        cci_signal = 0
-                    
-                    # Hurst Exponent
-                    if len(close) >= 40:
-                        hurst = calculate_hurst_exponent(close, max_lag=20)
-                        hurst_signal = 1 if hurst > 0.6 else -1 if hurst < 0.4 else 0
-                    else:
-                        hurst_signal = 0
-                    
-                    # ADX
-                    if len(close) >= 30:
-                        adx_value = calculate_adx(high, low, close, period=14)
-                        adx_signal = 1 if adx_value > 25 else -1 if adx_value < 20 else 0
-                    else:
-                        adx_signal = 0
-                    
-                    # Williams %R
-                    if len(close) >= 14:
-                        williams_r = calculate_williams_r(high, low, close, period=14)
-                        williams_r_signal = 1 if williams_r < -80 else -1 if williams_r > -20 else 0
-                    else:
-                        williams_r_signal = 0
-                    
-                    # Parabolic SAR
-                    if len(close) >= 2:
-                        sar = calculate_parabolic_sar(high, low, close)
-                        sar_signal = 1 if close.iloc[-1] > sar else -1
-                    else:
-                        sar_signal = 0
-                    
-                    # Get trade plan
-                    market_data = {
-                        'price': current_price,
-                        'volatility_hourly': atr_pct,
-                        'atr_pct': atr_pct,
-                        'pivot': (high.max() + low.min() + close.iloc[-1]) / 3,
-                        'r1': ((high.max() + low.min() + close.iloc[-1]) / 3) + atr,
-                        'r2': ((high.max() + low.min() + close.iloc[-1]) / 3) + 2*atr,
-                        's1': ((high.max() + low.min() + close.iloc[-1]) / 3) - atr,
-                        's2': ((high.max() + low.min() + close.iloc[-1]) / 3) - 2*atr,
-                        'support': low.min(),
-                        'resistance': high.max(),
-                        'psych_level': round(current_price * 100) / 100,
-                        'rsi_signal': rsi_signal,
-                        'macd_signal': macd_signal,
-                        'bb_signal': bb_signal,
-                        'trend_signal': trend_signal,
-                        'advanced_candle_signal': advanced_candle_signal,
-                        'obv_signal': obv_signal,
-                        'fvg_signal': fvg_signal,
-                        'vwap_signal': vwap_signal,
-                        'stoch_signal': stoch_signal,
-                        'cci_signal': cci_signal,
-                        'hurst_signal': hurst_signal,
-                        'adx_signal': adx_signal,
-                        'williams_r_signal': williams_r_signal,
-                        'sar_signal': sar_signal
-                    }
-                    
-                    # For backtest, use neutral sentiment to test technicals
-                    avg_sent = 0.0
-                    news_count = 0
-                    
-                    # But to allow trades, set small sentiment based on signals
-                    bullish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s > 0)
-                    bearish_count = sum(1 for s in [rsi_signal, macd_signal, bb_signal, trend_signal, advanced_candle_signal, obv_signal, fvg_signal, vwap_signal, stoch_signal, cci_signal, hurst_signal, adx_signal, williams_r_signal, sar_signal] if s < 0)
-                    if bullish_count >= 3:
-                        avg_sent = 0.1
-                    elif bearish_count >= 3:
-                        avg_sent = -0.1
-                    
-                    plan = calculate_trade_plan(avg_sent, news_count, market_data, kind='forex')
-                    if not plan or plan['direction'] == 'flat':
-                        continue
-                    
-                    # Simulate trade outcome (next hour) with spread and slippage
-                    next_price = hist.iloc[i+1]['Close'] if i+1 < len(hist) else current_price
-                    direction = plan['direction']
-                    stop = plan['stop_pct']
-                    target = plan['expected_profit_pct']
-                    
-                    # Add spread and slippage (forex: 1 pip spread, 0.5 pip slippage)
-                    spread = 0.0001
-                    slippage = 0.00005
-                    
-                    if direction == 'long':
-                        entry_price = current_price + spread/2 + slippage
-                        stop_price = current_price * (1 - stop) - spread/2
-                        target_price = current_price * (1 + target) + spread/2
-                        if next_price >= target_price:
-                            backtest_results['wins'] += 1
-                            backtest_results['total_return'] += target
-                        elif next_price <= stop_price:
-                            backtest_results['losses'] += 1
-                            backtest_results['total_return'] -= stop
-                    elif direction == 'short':
-                        entry_price = current_price - spread/2 - slippage
-                        stop_price = current_price * (1 + stop) + spread/2
-                        target_price = current_price * (1 - target) - spread/2
-                        if next_price <= target_price:
-                            backtest_results['wins'] += 1
-                            backtest_results['total_return'] += target
-                        elif next_price >= stop_price:
-                            backtest_results['losses'] += 1
-                            backtest_results['total_return'] -= stop
-                    
-                    backtest_results['total_trades'] += 1
-                    
-            except Exception as e:
-                print(f"Backtest error for {sym}: {e}")
-                continue
+                # Simulate trade outcome (next hour) with spread and slippage
+                next_price = hist.iloc[i+1]['Close'] if i+1 < len(hist) else current_price
+                direction = plan['direction']
+                stop = plan['stop_pct']
+                target = plan['expected_profit_pct']
+                
+                # Add spread and slippage (forex: 1 pip spread, 0.5 pip slippage)
+                spread = 0.0001
+                slippage = 0.00005
+                
+                if direction == 'long':
+                    entry_price = current_price + spread/2 + slippage
+                    stop_price = current_price * (1 - stop) - spread/2
+                    target_price = current_price * (1 + target) + spread/2
+                    if next_price >= target_price:
+                        backtest_results['wins'] += 1
+                        backtest_results['total_return'] += target
+                    elif next_price <= stop_price:
+                        backtest_results['losses'] += 1
+                        backtest_results['total_return'] -= stop
+                elif direction == 'short':
+                    entry_price = current_price - spread/2 - slippage
+                    stop_price = current_price * (1 + stop) + spread/2
+                    target_price = current_price * (1 - target) - spread/2
+                    if next_price <= target_price:
+                        backtest_results['wins'] += 1
+                        backtest_results['total_return'] += target
+                    elif next_price >= stop_price:
+                        backtest_results['losses'] += 1
+                        backtest_results['total_return'] -= stop
+                
+                backtest_results['total_trades'] += 1
+                
+        except Exception as e:
+            print(f"Backtest error for {sym}: {e}")
+            continue
     
     # Evaluate backtest
     if backtest_results['total_trades'] > 0:
