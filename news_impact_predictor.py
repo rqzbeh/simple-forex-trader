@@ -245,8 +245,11 @@ class NewsImpactPredictor:
                 abs(fear_greed) * irrationality,  # Emotion intensity
             ]
             
-            # Pad to match expected feature count (100 TF-IDF + 5 category + 2 aggregate)
-            features.extend([0] * (100 + 5 + 2 - len(features)))
+            # Expected total features: 100 TF-IDF + 5 category + 2 aggregate + 3 psychology = 110
+            # Current features: 8, so pad with 102 zeros
+            target_feature_count = 110
+            padding_needed = target_feature_count - len(features)
+            features.extend([0] * padding_needed)
             
             X.append(features)
             

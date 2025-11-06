@@ -82,12 +82,13 @@ TRAINING_RETRAIN_AFTER = 1  # Retrain after this many new completed trades
 4. Update trade log with results
 
 ### ML Training
-1. After every new completed trade
+1. After every 10 new completed trades
 2. ML System 1 trains on:
    - All training mode trades
    - Excludes emotional/mixed failures
-3. ML System 2 skips:
-   - ALL training mode trades (psychology not representative)
+3. ML System 2 trains on:
+   - ALL trades (both training and normal mode)
+   - Uses psychology features to learn emotional patterns
 
 ## Trade Log Structure
 
