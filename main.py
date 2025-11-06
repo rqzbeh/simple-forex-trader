@@ -259,7 +259,7 @@ FOREX_SYMBOL_MAP = {
     'COPPER': 'HG=F',  # Copper
     'PLATINUM': 'PL=F', # Platinum
     'PALLADIUM': 'PA=F', # Palladium
-    'NATURALGAS': 'NG=F', # Natural Gas
+    # 'NATURALGAS': 'NG=F', # Natural Gas - REMOVED: Often has insufficient hourly data or delisting issues
     'CORN': 'ZC=F',    # Corn
     'WHEAT': 'ZW=F',   # Wheat
     'SOYBEANS': 'ZS=F', # Soybeans
@@ -315,8 +315,8 @@ FOREX_ALIASES = {
     'COPPER': 'COPPER',
     'PLATINUM': 'PLATINUM',
     'PALLADIUM': 'PALLADIUM',
-    'NATURAL GAS': 'NATURALGAS',
-    'GAS': 'NATURALGAS',
+    # 'NATURAL GAS': 'NATURALGAS',  # REMOVED: NG=F has data issues
+    # 'GAS': 'NATURALGAS',  # REMOVED: NG=F has data issues
     'CORN': 'CORN',
     'WHEAT': 'WHEAT',
     'SOYBEANS': 'SOYBEANS',
@@ -554,8 +554,19 @@ def extract_forex_and_tickers(text: str):
     found = {}
  
     # 1) $TICKER patterns (common in forex/news posts)
+    # Common cryptocurrency symbols to exclude (they don't have reliable yfinance data)
+    CRYPTO_SYMBOLS = {'BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 
+                      'DOT', 'MATIC', 'TRX', 'AVAX', 'LINK', 'UNI', 'LTC', 
+                      'ATOM', 'XLM', 'ALGO', 'VET', 'FIL', 'THETA', 'XMR',
+                      'ETC', 'AAVE', 'MKR', 'COMP', 'SUSHI', 'YFI', 'SNX'}
+    
     for m in re.findall(r'\$([A-Z]{3,7})\b', text_u):
         key = m.upper()
+        
+        # Skip known cryptocurrency symbols
+        if key in CRYPTO_SYMBOLS:
+            continue
+            
         if key in FOREX_SYMBOL_MAP:
             found[key] = (FOREX_SYMBOL_MAP[key], 'forex')
         elif key in FOREX_ALIASES:
@@ -611,13 +622,13 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
         # Daily data for pivots
         hist_daily = ticker.history(period='30d', interval='1d')
         if hist_hourly.empty or len(hist_hourly) < 26 or hist_daily.empty or len(hist_daily) < 2:
-            print(f'yfinance insufficient data for {yf_symbol}')
+            # Silently skip symbols with insufficient data to reduce terminal spam
             return None
 
         # Skip delisted or low-volume symbols (stricter for stocks)
         avg_volume = hist_hourly['Volume'].tail(10).mean()
         if kind == 'stock' and avg_volume < 10000:  # Higher threshold for stocks
-            print(f'yfinance low volume for {yf_symbol}')
+            # Silently skip low-volume stocks
             return None
         # For forex, skip volume check as it may be low but data is valid
 
@@ -817,8 +828,10 @@ def _get_yfinance_data(yf_symbol, kind='forex'):
             'sar_signal': sar_signal
         }
     except Exception as e:
-        # Suppress yfinance errors for cleaner output
-        print(f'yfinance fetch error for {yf_symbol}: {e}')
+        # Silently handle yfinance errors to avoid terminal spam
+        # Only print errors in DEBUG mode
+        if DEBUG:
+            print(f'yfinance error for {yf_symbol}: {str(e)[:100]}')
         return None
 
 
@@ -2473,14 +2486,15 @@ async def main(backtest_only=False, training_mode=False):
 @lru_cache(maxsize=100)
 async def get_market_data_async(yf_symbol, kind='forex', session=None):
     """Async version of get_market_data for concurrent fetching."""
-    # Try yfinance first (primary)
-    print(f"Attempting yfinance for {yf_symbol}...")
+    # Try yfinance (primary data source)
+    # Verbose logging removed to reduce terminal spam
     data = _get_yfinance_data(yf_symbol, kind)
     if data:
-        print(f"yfinance success for {yf_symbol}")
+        if DEBUG:
+            print(f"✓ {yf_symbol}")
         return data
     
-    print(f"yfinance failed for {yf_symbol}")
+    # Silently fail - yfinance is the only data source
     return None
 
 if __name__ == '__main__':
