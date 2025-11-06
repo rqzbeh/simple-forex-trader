@@ -282,7 +282,8 @@ Return ONLY valid JSON, no additional text."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,  # Lower temperature for more consistent analysis
-                max_tokens=500
+                max_tokens=500,
+                response_format={"type": "json_object"}  # Ensure valid JSON output
             )
             
             content = response.choices[0].message.content

@@ -98,7 +98,8 @@ class MarketPsychologyAnalyzer:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=600
+                max_tokens=600,
+                response_format={"type": "json_object"}  # Ensure valid JSON output
             )
             
             content = response.choices[0].message.content
