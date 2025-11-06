@@ -445,10 +445,8 @@ LLM_MODEL = os.getenv('LLM_MODEL', None)  # Auto-selects llama-3.3-70b-versatile
 PSYCHOLOGY_ANALYSIS_ENABLED = os.getenv('PSYCHOLOGY_ANALYSIS_ENABLED', 'true').lower() == 'true'
 PSYCHOLOGY_IRRATIONALITY_THRESHOLD = float(os.getenv('PSYCHOLOGY_IRRATIONALITY_THRESHOLD', '0.6'))  # Adjust trades when irrationality > this
 
-# Backtesting configuration - DISABLED (we only use real trade data, no simulated/fake data)
-BACKTEST_ENABLED = False  # Disabled - we learn from real trades only, not simulated data
-BACKTEST_PERIOD_DAYS = 90  # Not used when BACKTEST_ENABLED = False
-BACKTEST_ADJUST_THRESHOLD = 0.55  # Not used when BACKTEST_ENABLED = False
+# Backtesting configuration - REMOVED (we only use real trade data, no simulated/fake data)
+# Backtesting has been completely removed. All parameter tuning uses real trade outcomes via evaluate_trades()
 
 # Indicator weights (optimized based on backtesting and industry research)
 RSI_WEIGHT = 1.3  # RSI is highly reliable
@@ -1932,9 +1930,10 @@ def backtest_parameters():
             if hist.empty or len(hist) < 24:  # Need at least 1 day
                 continue
             
-            # Simulate trades on each hour
+            # DEPRECATED: This entire function is disabled (BACKTEST_ENABLED=False)
+            # Was: Simulate trades on each hour
             for i in range(24, len(hist)):  # Start from 24th hour to have enough data
-                # Mock market data for the hour
+                # Prepare historical market data for the hour (not executed - deprecated)
                 recent_data = hist.iloc[i-24:i]  # Last 24 hours
                 current_price = hist.iloc[i]['Close']
                 
